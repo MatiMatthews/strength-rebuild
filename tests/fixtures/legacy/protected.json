@@ -1,0 +1,30 @@
+{
+  "stage": "w3",
+  "view": "viernes",
+  "abdominalTrigger": true,
+  "urgentFlag": false,
+  "checks": {
+    "viernes-activacion": true,
+    "viernes-movilidad": true,
+    "viernes-plyo": false,
+    "viernes-press": false,
+    "viernes-jalon": false,
+    "viernes-accesorio-a": false,
+    "viernes-accesorio-b": false,
+    "viernes-accesorio-c": false,
+    "viernes-core": false
+  },
+  "pain": {
+    "viernes-before": "3",
+    "viernes-after": "0"
+  },
+  "notes": {
+    "viernes": "Fixture anonimo con ruta protegida activa."
+  },
+  "timer": {
+    "total": 120,
+    "remaining": 120,
+    "end": null,
+    "running": false
+  }
+}

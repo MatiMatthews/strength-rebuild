@@ -1,0 +1,9 @@
+{
+  "name": "legacy-state-migrator",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

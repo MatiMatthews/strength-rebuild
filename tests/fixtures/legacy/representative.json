@@ -1,0 +1,28 @@
+{
+  "stage": "w2",
+  "view": "lunes",
+  "abdominalTrigger": false,
+  "urgentFlag": false,
+  "checks": {
+    "lunes-activacion": true,
+    "lunes-movilidad": true,
+    "lunes-banca": true,
+    "lunes-bisagra": false,
+    "lunes-accesorio-a": true,
+    "lunes-accesorio-b": false,
+    "lunes-core": true
+  },
+  "pain": {
+    "lunes-before": "1",
+    "lunes-after": "2"
+  },
+  "notes": {
+    "lunes": "Fixture anonimo para verificar la migracion."
+  },
+  "timer": {
+    "total": 180,
+    "remaining": 75,
+    "end": null,
+    "running": false
+  }
+}

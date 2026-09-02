@@ -1,0 +1,57 @@
+# Local Android and Gradle state
+.android-user/
+.android/
+.gradle-user-home/
+.gradle/
+local.properties
+
+# Downloaded portable toolchain
+toolchain/
+
+# Build output
+**/build/
+*.apk
+node_modules/
+.expo/
+.expo-home/
+dist/
+coverage/
+playwright-report/
+test-results/
+/android/
+/ios/
+expo-env.d.ts
+
+# Private signing material. Keep a separate backup for future updates.
+keystore.properties
+signing/
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+
+# Local secrets and databases
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Personal health and nutrition context. Keep this local even for private remotes.
+context/
+
+# Local execution state. Declarative configuration stays tracked.
+.valaris/bin/
+.valaris/run/
+.valaris/work/
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+*.iml
+.DS_Store

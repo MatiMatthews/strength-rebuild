@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "advisoryId": "GHSA-5p2g-fcmc-qvqq",
+      "dependencyPath": "image-size>node_modules/image-size",
+      "severity": "high",
+      "owner": "release-maintainers",
+      "justification": "Transitive Expo CLI image inspection; the registry currently offers no compatible patched Expo SDK 57 dependency path.",
+      "expiresOn": "2026-10-01"
+    },
+    {
+      "advisoryId": "GHSA-vcc3-ghjq-m6fr",
+      "dependencyPath": "decode-uri-component>node_modules/decode-uri-component",
+      "severity": "moderate",
+      "owner": "release-maintainers",
+      "justification": "Transitive expo-router query parsing; npm proposes an incompatible router downgrade rather than an SDK 57 patch.",
+      "expiresOn": "2026-10-01"
+    },
+    {
+      "advisoryId": "GHSA-w3rx-r6r6-pgpr",
+      "dependencyPath": "image-size>node_modules/image-size",
+      "severity": "high",
+      "owner": "release-maintainers",
+      "justification": "Transitive Expo CLI image inspection; the registry currently offers no compatible patched Expo SDK 57 dependency path.",
+      "expiresOn": "2026-10-01"
+    },
+    {
+      "advisoryId": "GHSA-w5hq-g745-h8pq",
+      "dependencyPath": "uuid>node_modules/uuid",
+      "severity": "moderate",
+      "owner": "release-maintainers",
+      "justification": "Transitive Expo development tooling path; the vulnerable UUID API is not called by the application runtime.",
+      "expiresOn": "2026-10-01"
+    }
+  ]
+}
