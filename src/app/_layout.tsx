@@ -7,7 +7,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SQLiteProvider } from 'expo-sqlite';
 
 import { importLegacyState } from '@/application/import';
-import { ScenarioStateGate } from '@/application/scenario-entry';
 import { migrateDatabase } from '@/data/migrations';
 import type { RepositoryDatabase } from '@/data/repositories';
 import { RepositoryProvider } from '@/data/repositories/provider';
@@ -43,24 +42,22 @@ function RootContent() {
         }}
       >
         <RepositoryProvider>
-          <ScenarioStateGate>
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.canvas }}>
-              <SafeAreaProvider>
-                <StatusBar style={theme.dark ? 'light' : 'dark'} />
-                <Stack
-                  screenOptions={{
-                    animation: 'slide_from_right',
-                    contentStyle: { backgroundColor: theme.canvas },
-                    headerShown: false,
-                  }}
-                >
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="settings" />
-                  <Stack.Screen name="workout" />
-                </Stack>
-              </SafeAreaProvider>
-            </GestureHandlerRootView>
-          </ScenarioStateGate>
+          <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.canvas }}>
+            <SafeAreaProvider>
+              <StatusBar style={theme.dark ? 'light' : 'dark'} />
+              <Stack
+                screenOptions={{
+                  animation: 'slide_from_right',
+                  contentStyle: { backgroundColor: theme.canvas },
+                  headerShown: false,
+                }}
+              >
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="settings" />
+                <Stack.Screen name="workout" />
+              </Stack>
+            </SafeAreaProvider>
+          </GestureHandlerRootView>
         </RepositoryProvider>
       </SQLiteProvider>
     </>
