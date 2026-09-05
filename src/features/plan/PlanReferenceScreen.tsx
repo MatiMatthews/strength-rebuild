@@ -5,7 +5,7 @@ import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirem
 import { exerciseCatalog } from '@/data/seeds/exercises';
 
 import { ChevronDown } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ActionButton, AppText, FeedbackBanner, Panel, Screen, TextField } from '@/design-system/v2.2/primitives';
@@ -35,7 +35,8 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
-  const [settingsReady, setSettingsReady] = useState(!settingsStore);
+  const [ready, setReady] = useState(false);
+  const previewIds = useRef<readonly string[] | null>(null);
   const [weeks, setWeeks] = useState('4');
   const [cycles, setCycles] = useState<readonly CyclePrescriptionSnapshot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -45,35 +46,48 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [planningSettings, setPlanningSettings] = useState<TrainingSettings>(defaultSettings);
   const [reviewEligible, setReviewEligible] = useState(false);
   useEffect(() => {
-    if (!focused) return;
     let live = true;
-    Promise.all([programs.listCycleSnapshots(), programs.getActiveCycleId(), programs.listInvalidSessionReferences?.() ?? Promise.resolve([])]).then(([storedCycles, activeId, invalid]) => {
-      if (live) { setCycles(storedCycles); setActive(activeId); setInvalidSessions(invalid); }
+    void Promise.resolve().then(async () => {
+      if (!live) return;
+      setReady(false);
+      setReviewing(null);
+      setReviewEligible(false);
+      if (!focused) return;
+      // Actions consume one completed focus refresh, never mixed old and new inputs.
+      const [storedCycles, activeId, invalid, settings] = await Promise.all([
+        programs.listCycleSnapshots(), programs.getActiveCycleId(),
+        programs.listInvalidSessionReferences?.() ?? Promise.resolve([]),
+        settingsStore?.load() ?? Promise.resolve(defaultSettings),
+      ]);
+      if (!live) return;
+      setCycles(!activeId && previewIds.current
+        ? storedCycles.filter((cycle) => previewIds.current!.includes(cycle.id)) : storedCycles);
+      setActive(activeId);
+      setInvalidSessions(invalid);
+      setPlanningSettings(settings);
+      setFeedback(null);
+      setReady(true);
+    }).catch(() => {
+      if (live) setFeedback({ message: 'No se pudo cargar el plan y su configuración. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
     });
     return () => { live = false; };
-  }, [programs, focused]);
+  }, [programs, focused, settingsStore]);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(async () => {
       if (!live) return;
-      setReviewing(null);
-      setSettingsReady(!settingsStore);
-      if (focused && settingsStore) {
-        const settings = await settingsStore.load();
-        if (live) { setPlanningSettings(settings); setSettingsReady(true); }
-      }
+      setReviewEligible(false);
+      if (!ready || !focused || !active || !reviews?.isEligible) return;
+      const eligible = await reviews.isEligible(active, 1);
+      if (live) setReviewEligible(eligible);
     }).catch(() => {
-      if (live) setFeedback({ message: 'No se pudo cargar la configuración. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
+      if (live) setFeedback({ message: 'No se pudo comprobar la revisión semanal. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
     });
     return () => { live = false; };
-  }, [focused, settingsStore]);
-  useEffect(() => {
-    let live = true;
-    if (active && reviews?.isEligible) void reviews.isEligible(active, 1).then((eligible) => { if (live) setReviewEligible(eligible); });
-    return () => { live = false; };
-  }, [active, reviews]);
+  }, [active, reviews, ready, focused]);
 
   const create = async () => {
+    if (busy || !ready || !focused) return;
     const length = Number(weeks);
     if (!Number.isInteger(length) || length < 1 || length > 12) { setFeedback({ message: 'Ingresa una duración entre 1 y 12 semanas.', tone: 'danger' }); return; }
     setBusy(true);
@@ -92,12 +106,13 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
             { id: 'power-draft', type: 'power', weeks: 2, ...(profile ? { profile } : {}), ...planningInputs },
           ]);
           const unchanged = JSON.stringify(nextCycles) === JSON.stringify(cycles);
+          previewIds.current = nextCycles.map((cycle) => cycle.id);
           setCycles(nextCycles);
           setFeedback({ message: unchanged ? 'La vista previa no cambió.' : 'Vista previa creada y guardada en este dispositivo.', tone: 'success' });
     } catch (error) { setFeedback({ message: error instanceof InsufficientWorkoutError || error instanceof CatalogRequirementError ? error.message : 'No se pudo crear la vista previa. Revisa la configuración.', tone: 'danger' }); } finally { setBusy(false); }
   };
   const activate = async () => {
-    if (busy) return;
+    if (busy || !ready || !focused) return;
     const first = cycles.find(({ type }) => type !== 'transition');
     if (!first) return;
     setBusy(true);
@@ -115,18 +130,18 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       <FeedbackBanner message="Hay ejercicios fuera del catálogo en tu plan guardado." tone="danger" />
       {invalidSessions.some((session) => session.unstarted) ? <AppText>Sesiones sin iniciar que necesitan revisión antes de entrenar: {invalidSessions.filter((session) => session.unstarted).length}.</AppText> : null}
       {invalidSessions.some((session) => !session.unstarted) ? <AppText>Sesiones iniciadas o cerradas con referencias originales: {invalidSessions.filter((session) => !session.unstarted).length}. No se sustituye el trabajo registrado.</AppText> : null}
-      {settingsReady && programs.previewLegacyReplacement ? invalidSessions.filter((session) => session.unstarted).map((session) => <ActionButton key={session.sessionPlanId} accessibilityLabel={`Revisar referencias de semana ${session.weekIndex}, sesión ${session.dayIndex}`} onPress={() => setReviewing(session)} tone="secondary">Revisar semana {session.weekIndex} · sesión {session.dayIndex}</ActionButton>) : null}
+      {ready && focused && programs.previewLegacyReplacement ? invalidSessions.filter((session) => session.unstarted).map((session) => <ActionButton key={session.sessionPlanId} accessibilityLabel={`Revisar referencias de semana ${session.weekIndex}, sesión ${session.dayIndex}`} onPress={() => setReviewing(session)} tone="secondary">Revisar semana {session.weekIndex} · sesión {session.dayIndex}</ActionButton>) : null}
     </Panel> : null}
-    {reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs) }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
+    {ready && focused && reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs) }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
     {active && feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />
       <AppText color="muted" variant="caption">Después se prepara Fuerza · 4 semanas. La descarga intermedia no se puede eliminar.</AppText>
-      <ActionButton accessibilityLabel="Crear vista previa del ciclo" onPress={create}>{busy ? 'Creando…' : 'Crear vista previa'}</ActionButton>
+      <ActionButton accessibilityLabel="Crear vista previa del ciclo" disabled={busy || !ready || !focused} onPress={create}>{busy ? 'Creando…' : 'Crear vista previa'}</ActionButton>
       {feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     </Panel>}
-    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy} onPress={activate}>Activar plan</ActionButton></Panel> : null}
+    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy || !ready || !focused} onPress={activate}>Activar plan</ActionButton></Panel> : null}
     <OperationalSection label="HERRAMIENTAS DEL PLAN"><AppText color="muted">Edita tu perfil y equipo, o administra una copia local, en pantallas separadas.</AppText>{onOpenSettings ? <ActionButton accessibilityLabel="Abrir configuración del plan" onPress={onOpenSettings} tone="secondary">Configuración del plan</ActionButton> : null}{onOpenBackup ? <ActionButton accessibilityLabel="Abrir respaldo y recuperación" onPress={onOpenBackup} tone="secondary">Respaldo y recuperación</ActionButton> : null}</OperationalSection>
     <View style={[styles.programRail, { borderColor: theme.border }]} testID="program-rail">
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>
@@ -167,7 +182,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
           </Pressable>
         </View>;
       })}
-      {active && reviews && reviewEligible && cycles.find(({ id }) => id === active)?.weeks.length && (cycles.find(({ id }) => id === active)?.weeks.length ?? 0) > 1 ? <WeeklyReviewPanel cycleId={active} nextWeekIndex={2} reviews={reviews} /> : null}
+      {ready && focused && active && reviews && reviewEligible && cycles.find(({ id }) => id === active)?.weeks.length && (cycles.find(({ id }) => id === active)?.weeks.length ?? 0) > 1 ? <WeeklyReviewPanel cycleId={active} nextWeekIndex={2} reviews={reviews} /> : null}
     </View>
   </Screen>;
 }

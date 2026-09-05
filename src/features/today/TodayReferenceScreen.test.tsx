@@ -15,6 +15,23 @@ const planned = {
 describe('Today production states', () => {
   const settings = { onOpenSettings: jest.fn() };
 
+  it('previews the canonical workout and warns about block-only invalid references without changing the legacy projection', async () => {
+    const template = planned.session.exercises[0]!;
+    const data: TodayData = { ...planned, session: { ...planned.session, blocks: [
+      { role: 'primary', exercises: [{ ...template, exerciseId: 'missing-block' }, { ...template, exerciseId: 'bird-dog' }] },
+      { role: 'finish-review', exercises: [{ ...template, exerciseId: 'session-review' }] },
+    ] } };
+    const original = JSON.stringify(data);
+    const screen = await render(<TodayReferenceScreen {...settings} state={{ kind: 'planned', data }} onStartWorkout={jest.fn()} />);
+    expect(screen.getByText('Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.')).toBeOnTheScreen();
+    expect(screen.getAllByLabelText(/Abrir ejercicio/)).toHaveLength(2);
+    expect(screen.getByText('Ejercicio no disponible en el catálogo')).toBeOnTheScreen();
+    expect(screen.getByText('Bird dog')).toBeOnTheScreen();
+    expect(screen.queryByText('Press banca')).toBeNull();
+    expect(screen.queryByText('Revisión de sesión')).toBeNull();
+    expect(JSON.stringify(data)).toBe(original);
+  });
+
   it.each(['planned', 'resume'] as const)('identifies unknown references in %s without changing prescriptions', async (kind) => {
     const data = JSON.parse(JSON.stringify(planned)) as TodayData;
     Object.assign(data.session.exercises[0]!, { exerciseId: 'missing-legacy' });

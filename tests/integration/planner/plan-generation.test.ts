@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import { ProgramService } from '../../../src/application/programs/program-service';
+import { WeeklyReviewService } from '../../../src/application/progression/weekly-review';
 import { migrateDatabase, type MigrationDatabase } from '../../../src/data/migrations';
 import type { RepositoryDatabase, SqlValue } from '../../../src/data/repositories';
 
@@ -23,6 +24,73 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('shows accepted persisted session targets in Plan exactly as Today reads them, without rewriting original snapshots', async () => {
+    const opened = open(':memory:');
+    try {
+      await migrateDatabase(opened.db);
+      const programs = new ProgramService(opened.db);
+      const [original] = await programs.createPlan([{ id: 'reviewed', type: 'strength', weeks: 2, schedule: [2, 4, 6] }]);
+      await programs.activateCycle('reviewed');
+      await opened.db.runAsync("UPDATE training_week SET status = 'REVIEW' WHERE cycle_id = 'reviewed' AND week_index = 1");
+      const reviews = new WeeklyReviewService(opened.db, () => '2026-09-05T10:00:00.000Z', () => 'synthetic-progression');
+      const proposal = await reviews.propose({ cycleId: 'reviewed', weekIndex: 1, nextWeekIndex: 2, outcome: 'successful' });
+      await opened.db.runAsync('UPDATE progression_proposal SET output_json = ? WHERE id = ?',
+        JSON.stringify({ ...proposal, exerciseId: 'barbell-bench-press', nextTarget: { load: 45, reps: 5, sets: 4 } }), proposal.id);
+      await reviews.decide(proposal.id, true);
+      const tables = ['cycle', 'training_week', 'session_plan', 'workout_session', 'decision_log'];
+      const before = await Promise.all(tables.map((table) => opened.db.getAllAsync(`SELECT * FROM ${table}`)));
+      const today = await programs.getToday();
+      const [displayed] = await programs.listCycleSnapshots();
+      expect(today?.weekIndex).toBe(2);
+      expect(today?.session.dayIndex).toBe(2);
+      expect(today?.session.exercises.find((exercise) => exercise.exerciseId === 'barbell-bench-press'))
+        .toMatchObject({ calculatedLoad: 45, target: { sets: 4, reps: { min: 5, max: 5 } } });
+      expect(displayed!.weeks[1]!.sessions[0]).toEqual(today?.session);
+      expect(displayed!.weeks[0]).toEqual(original!.weeks[0]);
+      expect(await Promise.all(tables.map((table) => opened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+      expect(JSON.parse((await opened.db.getFirstAsync<{ snapshot_json: string }>("SELECT snapshot_json FROM cycle WHERE id = 'reviewed'"))!.snapshot_json)).toEqual(original);
+    } finally { opened.close(); }
+  });
+
+  it('rolls back the cycle status write when activation readback fails', async () => {
+    const opened = open(':memory:');
+    try {
+      await migrateDatabase(opened.db);
+      const programs = new ProgramService(opened.db);
+      await programs.createPlan([{ id: 'current', type: 'strength', weeks: 1 }, { id: 'candidate', type: 'strength', weeks: 1 }]);
+      await programs.activateCycle('current');
+      const before = await opened.db.getAllAsync('SELECT * FROM cycle');
+      const read = opened.db.getFirstAsync.bind(opened.db);
+      const failingDb: RepositoryDatabase = { ...opened.db, getFirstAsync: async <T,>(sql: string, ...params: SqlValue[]) => {
+        if (sql === "SELECT id FROM cycle WHERE status = 'ACTIVE' LIMIT 1") throw new Error('synthetic readback failure');
+        return read<T>(sql, ...params);
+      } };
+      await expect(new ProgramService(failingDb).activateCycle('candidate')).rejects.toThrow('synthetic readback failure');
+      expect(await opened.db.getAllAsync('SELECT * FROM cycle')).toEqual(before);
+      expect(await programs.getActiveCycleId()).toBe('current');
+    } finally { opened.close(); }
+  });
+
+  it.each(['bodyweight-activation', 'thoracic-mobility', 'hip-mobility'])('previews compatible %s without generating unrelated full workouts', async (replacementId) => {
+    const opened = open(':memory:');
+    try {
+      await migrateDatabase(opened.db);
+      const service = new ProgramService(opened.db);
+      await service.createPlan([{ id: 'legacy-preview', type: 'strength', weeks: 1 }]);
+      const id = 'legacy-preview-week-1-day-1';
+      const row = await opened.db.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan WHERE id = ?', id);
+      const session = JSON.parse(row!.snapshot_json);
+      session.blocks[0].exercises[0].exerciseId = 'missing';
+      await opened.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(session), id);
+      const tables = ['cycle', 'training_week', 'session_plan', 'workout_session'];
+      const before = await Promise.all(tables.map((table) => opened.db.getAllAsync(`SELECT * FROM ${table}`)));
+      await expect(service.previewLegacyReplacement(id, 'missing', replacementId, { equipment: ['bodyweight'], restrictions: ['abdominal'] }))
+        .resolves.toMatchObject({ exerciseId: replacementId, requirement: 'EXACT', braceDemand: 'low', lumbarDemand: 'low',
+          target: { sets: 3, reps: { min: 3, max: 6 } } });
+      expect(await Promise.all(tables.map((table) => opened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+    } finally { opened.close(); }
+  });
+
   it('does not offer repairs for planned rows inside a completed cycle', async () => {
     const first = open(':memory:');
     await migrateDatabase(first.db);

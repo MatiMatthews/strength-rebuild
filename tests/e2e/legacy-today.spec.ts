@@ -3,10 +3,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { readPersistence } from './persistence';
 
-for (const state of ['unstarted', 'closed-cycle', 'completed-session', 'active-workout']) {
+for (const state of ['unstarted', 'projection-only', 'closed-cycle', 'completed-session', 'active-workout']) {
 const closedCycle = state === 'closed-cycle';
-const protectedWork = state !== 'unstarted';
-test(`${state}: Today identifies an unknown persisted exercise without rewriting the plan on reopen`, async ({ page, context }, info) => {
+const protectedWork = ['closed-cycle', 'completed-session', 'active-workout'].includes(state);
+test(`${state}: canonical exercises and legacy references remain truthful without rewriting stored work`, async ({ page, context }, info) => {
   await page.goto('/plan');
   await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
   await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
@@ -24,6 +24,12 @@ test(`${state}: Today identifies an unknown persisted exercise without rewriting
     WHERE c.status = 'ACTIVE' ORDER BY w.week_index, s.day_index LIMIT 1`).get()!;
   const snapshot = JSON.parse(String(row.snapshot_json));
   snapshot.exercises[0].exerciseId = 'missing-legacy';
+  if (state !== 'projection-only') {
+    // Corrupt the executable source, not just its legacy display projection.
+    const block = snapshot.blocks.find((entry: { role: string; exercises: unknown[] }) => entry.role !== 'finish-review' && entry.exercises.length);
+    expect(block).toBeDefined();
+    block.exercises[0].exerciseId = 'missing-legacy';
+  }
   db.prepare('UPDATE session_plan SET snapshot_json = ? WHERE id = ?').run(JSON.stringify(snapshot), row.id!);
   if (closedCycle) db.prepare("UPDATE cycle SET status = 'COMPLETED' WHERE status = 'ACTIVE'").run();
   if (state === 'completed-session') db.prepare("UPDATE session_plan SET status = 'COMPLETED' WHERE id = ?").run(row.id!);
@@ -61,6 +67,19 @@ test(`${state}: Today identifies an unknown persisted exercise without rewriting
 
   for (const attempt of [1, 2]) {
     const app = await context.newPage();
+    if (state === 'projection-only') {
+      await app.goto('/');
+      await expect(app.getByTestId('brand-masthead')).toBeVisible();
+      await expect(app.getByText('Activación general', { exact: true })).toBeVisible();
+      await expect(app.getByText('Esta sesión contiene referencias desconocidas.', { exact: false })).toHaveCount(0);
+      await expect(app.getByText('Ejercicio no disponible en el catálogo', { exact: true })).toHaveCount(0);
+      expect(await readPersistence(app, info), 'Canonical rendering must not rewrite the stale projection').toEqual(before);
+      await app.goto('/plan');
+      await expect(app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true })).toBeVisible();
+      expect(await readPersistence(app, info)).toEqual(before);
+      await app.close();
+      continue;
+    }
     if (state === 'unstarted') {
       await app.goto('/');
       await expect(app.getByText('Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.', { exact: true })).toBeVisible();

@@ -1,10 +1,11 @@
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import {
   generateCycleSequence,
-  generatePrescription,
+  prescribeCatalogExercise,
   type CyclePrescriptionRequest,
   type CyclePrescriptionSnapshot,
 } from '../../domain/prescriptions/generator';
+import { resolveCatalogRequirements } from '../../domain/prescriptions/catalog-requirements';
 import type { RepositoryDatabase } from '../../data/repositories';
 
 type CycleRow = { snapshot_json: string };
@@ -117,7 +118,22 @@ export class ProgramService {
 
   async listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]> {
     const rows = await this.db.getAllAsync<CycleRow>('SELECT snapshot_json FROM cycle ORDER BY rowid');
-    return rows.map(({ snapshot_json }) => JSON.parse(snapshot_json) as CyclePrescriptionSnapshot);
+    const sessions = await this.db.getAllAsync<CycleRow & { cycle_id: string; week_index: number; day_index: number }>(
+      `SELECT w.cycle_id, w.week_index, s.day_index, s.snapshot_json
+       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id`,
+    );
+    return rows.map(({ snapshot_json }) => {
+      const cycle = JSON.parse(snapshot_json) as CyclePrescriptionSnapshot;
+      const storedSessions = sessions.filter((session) => session.cycle_id === cycle.id);
+      return { ...cycle, weeks: cycle.weeks.map((week) => ({
+        ...week,
+        sessions: week.sessions.map((session, index) => {
+          // The relational day is the session ordinal, not the scheduled weekday.
+          const stored = storedSessions.find((row) => row.week_index === week.index && row.day_index === index + 1);
+          return stored ? JSON.parse(stored.snapshot_json) as TodayData['session'] : session;
+        }),
+      })) };
+    });
   }
 
   /** Read-only inventory: any recorded workout protects a session, regardless of its status. */
@@ -151,9 +167,10 @@ export class ProgramService {
     if (!reference.unstarted) throw new Error('La sesión está iniciada o cerrada. Se conserva el trabajo original.');
     const row = await this.db.getFirstAsync<{ kind: CyclePrescriptionSnapshot['type'] }>('SELECT kind FROM cycle WHERE id = ?', reference.cycleId);
     if (!row) throw new Error('El ciclo ya no está disponible.');
-    const generated = generatePrescription({ id: 'replacement-preview', type: row.kind, weeks: 1,
+    const [replacement] = resolveCatalogRequirements({ id: 'replacement-preview', type: row.kind, weeks: 1,
       ...constraints, requirements: [{ kind: 'EXACT', value: replacementId }] });
-    return generated.weeks[0]!.sessions[0]!.exercises.find((exercise) => exercise.exerciseId === replacementId)!;
+    return prescribeCatalogExercise({ type: row.kind }, replacement!, 'EXACT',
+      replacement!.tags.includes('power') ? { power: true, plyometric: replacement!.impact !== 'none' } : {});
   }
 
   async getActiveCycleId(): Promise<string | null> {
