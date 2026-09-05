@@ -1,6 +1,9 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { readFileSync } from 'node:fs';
 
+import type { ProgramService } from '@/application/programs/program-service';
+import type { WorkoutDraft, WorkoutService } from '@/application/workouts/workout-service';
+
 import { WorkoutReferenceScreen } from './WorkoutReferenceScreen';
 import { playContractedHaptic } from '@/design-system/v2.2/haptics';
 
@@ -8,6 +11,31 @@ jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(), notificationAsync:
 jest.mock('@/design-system/v2.2/haptics', () => ({ playContractedHaptic: jest.fn() }));
 
 describe('Workout reference state', () => {
+  it('identifies an unavailable exercise in a resumed draft without reassigning recorded work', async () => {
+    const draft: WorkoutDraft = {
+      id: 'legacy-active', safetyModifications: [],
+      exercises: [{ exerciseId: 'missing-legacy', originalExerciseId: 'missing-legacy',
+        requirement: 'EXACT', sets: [{ load: '80', reps: '8', rir: '2',
+          technique: 'Limpia', pain: 0, notes: 'preserve', completed: true,
+          skipped: false, disposition: 'COMPLETED' }] }],
+    };
+    const original = JSON.stringify(draft);
+    const workouts = {
+      startOrResume: jest.fn().mockResolvedValue(draft),
+      saveDraftSnapshot: jest.fn().mockResolvedValue(undefined),
+      canComplete: jest.fn().mockReturnValue(true),
+      replaceExercise: jest.fn(),
+    } as unknown as WorkoutService;
+    const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
+    const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} workouts={workouts} programs={programs} />);
+    expect(await screen.findByText('Ejercicio no disponible en el catálogo')).toBeOnTheScreen();
+    expect(screen.getByText(/No se puede sustituir una referencia desconocida en una sesión iniciada/)).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Reemplazar ejercicio')).toBeNull();
+    expect(screen.getByLabelText('Carga de la serie 1').props.value).toBe('80');
+    expect(JSON.stringify(draft)).toBe(original);
+    expect(workouts.replaceExercise).not.toHaveBeenCalled();
+  });
+
   it('keeps background autosave from overwriting an immediate text checkpoint', () => {
     const source = readFileSync(require.resolve('./WorkoutReferenceScreen'), 'utf8');
     expect(source).toContain('.saveDraftSnapshot(latestDraftRef.current ?? draft)');
@@ -22,6 +50,7 @@ describe('Workout reference state', () => {
     expect(screen.getByTestId('workout-sequence-rail')).toHaveAccessibilityValue({ min: 1, max: 1, now: 1 });
     expect(screen.getByTestId('workout-exercise-header')).toBeOnTheScreen();
     expect(screen.getByRole('header', { name: 'Press banca' })).toBeOnTheScreen();
+    expect(screen.queryByText('Ejercicio no disponible en el catálogo')).toBeNull();
   });
 
   it('keeps each active set value independently editable', async () => {
