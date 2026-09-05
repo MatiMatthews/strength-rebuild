@@ -73,6 +73,9 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
     await expect(app.getByText('Propuesta: Press banca', { exact: true })).toBeVisible();
     await expect(app.getByText('Carga por definir; no se transfiere la carga del ejercicio desconocido.', { exact: true })).toBeVisible();
     await expect(app.getByText('Solo vista previa. Tu sesión original sigue intacta.', { exact: true })).toBeVisible();
+    await expect(app.getByText('Instrucciones locales: Press banca', { exact: true })).toBeVisible();
+    await expect(app.getByText('Apoya cabeza, espalda y pies.', { exact: true })).toBeVisible();
+    await expect(app.getByText('Baja con control y empuja sin perder los apoyos.', { exact: true })).toBeVisible();
     expect(await readPersistence(app, info)).toEqual(before);
     await app.screenshot({ path: info.outputPath(`legacy-preview-${attempt}.png`), fullPage: true });
     await app.getByRole('button', { name: 'Cancelar revisión de referencias', exact: true }).click();

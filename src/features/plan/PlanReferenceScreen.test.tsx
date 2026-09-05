@@ -32,6 +32,13 @@ describe('PlanReferenceScreen', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Ver propuesta Press banca para missing' }));
     await view.findByText('Propuesta: Press banca');
     expect(view.getByText('3 series · 3–6 repeticiones · RIR 2–3')).toBeTruthy();
+    expect(view.getByText('Instrucciones locales: Press banca')).toBeTruthy();
+    expect(view.getByText('Apoya cabeza, espalda y pies.')).toBeTruthy();
+    expect(view.getByText('Baja con control y empuja sin perder los apoyos.')).toBeTruthy();
+    await fireEvent.press(view.getByRole('button', { name: 'Elegir otra propuesta' }));
+    expect(view.queryByText('Instrucciones locales: Press banca')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Ver propuesta Press banca para missing' }));
+    await view.findByText('Instrucciones locales: Press banca');
     expect(view.getByText('Carga por definir; no se transfiere la carga del ejercicio desconocido.')).toBeTruthy();
     await fireEvent.press(view.getByRole('button', { name: 'Cancelar revisión de referencias' }));
     expect(view.queryByText('Propuesta: Press banca')).toBeNull();

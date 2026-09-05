@@ -28,6 +28,7 @@ export function LegacyReferencePreview({ reference, programs, settings, onCancel
     catch (failure) { setError(failure instanceof Error ? failure.message : 'No se pudo preparar la propuesta. Inténtalo de nuevo.'); }
     finally { setBusy(false); }
   };
+  const proposedExercise = preview ? exerciseCatalog.find((exercise) => exercise.id === preview.exercise.exerciseId) : undefined;
   return <Panel>
     <AppText variant="bodyStrong">Revisar sesión {reference.dayIndex} · semana {reference.weekIndex}</AppText>
     <AppText>No sabemos qué movimiento representaba la referencia original. Elige un ejercicio para explorar su propuesta; todavía no se guarda ningún cambio.</AppText>
@@ -40,10 +41,14 @@ export function LegacyReferencePreview({ reference, programs, settings, onCancel
     {busy ? <AppText>Preparando propuesta…</AppText> : null}
     {error ? <FeedbackBanner message={error} tone="danger" /> : null}
     {preview ? <Panel>
-      <AppText variant="bodyStrong">Propuesta: {exerciseCatalog.find((exercise) => exercise.id === preview.exercise.exerciseId)?.name}</AppText>
+      <AppText variant="bodyStrong">Propuesta: {proposedExercise?.name}</AppText>
       <AppText>Para la referencia: {preview.original}</AppText>
       <AppText>{preview.exercise.target.sets} series · {preview.exercise.target.reps.min}–{preview.exercise.target.reps.max} repeticiones · RIR {preview.exercise.target.rir.min}–{preview.exercise.target.rir.max}</AppText>
       <AppText>Carga por definir; no se transfiere la carga del ejercicio desconocido.</AppText>
+      {proposedExercise ? <Panel>
+        <AppText variant="bodyStrong">Instrucciones locales: {proposedExercise.name}</AppText>
+        {proposedExercise.instructions.map((instruction) => <AppText key={instruction}>{instruction}</AppText>)}
+      </Panel> : null}
       <AppText>Solo vista previa. Tu sesión original sigue intacta.</AppText>
       <ActionButton onPress={() => setPreview(null)} tone="secondary">Elegir otra propuesta</ActionButton>
     </Panel> : null}
