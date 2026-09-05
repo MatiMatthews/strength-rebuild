@@ -46,6 +46,7 @@ test('omission drafts preserve data until confirmation and survive reopen exactl
   const originalDraft = JSON.parse(String(before[0]?.actual_snapshot_json));
   const confirmedDraft = JSON.parse(String(confirmed[0]?.actual_snapshot_json));
   originalDraft.exercises[0].sets[0] = { ...originalDraft.exercises[0].sets[0], completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Equipo no disponible' };
+  originalDraft.revision += 1;
   expect(confirmedDraft).toEqual(originalDraft);
   await page.getByRole('button', { name: 'Omitir serie 1', exact: true }).click();
   await expect(page.getByLabel('Motivo para omitir la serie 1', { exact: true })).toHaveValue('Equipo no disponible');
@@ -63,6 +64,7 @@ test('omission drafts preserve data until confirmation and survive reopen exactl
   await expect.poll(async () => JSON.parse(String((await snapshot(reopened))[0]?.actual_snapshot_json)).exercises[0].sets[0].skipReason).toBe('Motivo corregido');
   const edited = JSON.parse(String((await snapshot(reopened))[0]?.actual_snapshot_json));
   confirmedDraft.exercises[0].sets[0].skipReason = 'Motivo corregido';
+  confirmedDraft.revision += 1;
   expect(edited).toEqual(confirmedDraft);
   await info.attach('omission-persistence', { body: JSON.stringify({ before, confirmed, reopened: await snapshot(reopened) }, null, 2), contentType: 'application/json' });
 });

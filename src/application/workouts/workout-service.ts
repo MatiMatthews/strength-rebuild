@@ -1,3 +1,4 @@
+import { enforceRestrictions, mutationSafety, readRestrictions } from './persisted-safety';
 import { effectiveSession } from '../programs/legacy-repair';
 import type { TodayData } from '../programs/program-service';
 import { SettingRepository, WorkoutRepository, type RepositoryDatabase } from '../../data/repositories';
@@ -14,7 +15,7 @@ type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['rol
 type PrescribedExercise = TodayData['session']['exercises'][number];
 export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
 export interface SafetyModification extends SafetyResult { exerciseIndex: number; setIndex: number; recordedAt: string }
-export interface WorkoutDraft { setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
+export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
 export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft }
 export interface HistoryCorrectionInput { workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string }
@@ -68,6 +69,11 @@ function executableExercises(session: TodayData['session']): { exercise: Prescri
 }
 
 export class WorkoutService {
+  private readonly checkpointContents = new Map<string, string>();
+  private content(draft: WorkoutDraft): string {
+    const { revision: _revision, ...content } = draft;
+    return JSON.stringify(content);
+  }
   private readinessBusy = false;
   private readonly repository: WorkoutRepository;
   private readonly settings: SettingRepository;
@@ -137,28 +143,39 @@ export class WorkoutService {
     if (setting.value.input) {
       if (!validReadinessInput(setting.value.input)) throw new Error('La entrada guardada no se puede verificar.');
       const result = evaluateSafety(setting.value.input);
-      if (result.disposition !== setting.value.disposition || result.reviewRequired !== setting.value.reviewRequired) throw new Error('La preparación guardada no coincide con su resultado.');
+      if (result.disposition !== setting.value.disposition || result.reviewRequired !== setting.value.reviewRequired
+        || (result.reviewRequired ? 'REVIEW_REQUIRED' : result.disposition === 'STOP_PATTERN' ? 'PATTERN_STOPPED' : ['MODIFY_SET', 'CONTINUE_WITH_RESTRICTIONS'].includes(result.disposition) ? 'MODIFIED' : 'READY') !== setting.value.sessionStatus) throw new Error('La preparación guardada no coincide con su resultado.');
     }
     return setting.value;
   }
 
   async startOrResume(today: TodayData | TodayData['session']): Promise<WorkoutDraft> {
+    let draft!: WorkoutDraft;
+    await this.db.withTransactionAsync(async () => { draft = await this.openWorkout(today); });
+    this.checkpointContents.set(draft.id, this.content(draft));
+    return draft;
+  }
+
+  private async openWorkout(today: TodayData | TodayData['session']): Promise<WorkoutDraft> {
     const session = 'session' in today ? today.session : today;
-    const sessionPlanId = 'sessionPlanId' in today && today.sessionPlanId
-      ? today.sessionPlanId
-      : (await this.db.getFirstAsync<SessionPlanRow>("SELECT s.id FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id WHERE c.status = 'ACTIVE' AND w.status = 'PLANNED' AND s.status = 'PLANNED' ORDER BY w.week_index, s.day_index LIMIT 1"))?.id;
+    const currentSessionId = (await this.db.getFirstAsync<SessionPlanRow>("SELECT s.id FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id WHERE c.status = 'ACTIVE' AND w.status = 'PLANNED' AND s.status = 'PLANNED' ORDER BY w.week_index, s.day_index LIMIT 1"))?.id;
+    const sessionPlanId = 'sessionPlanId' in today && today.sessionPlanId ? today.sessionPlanId : currentSessionId;
+    if (sessionPlanId && sessionPlanId !== currentSessionId) throw new Error('La sesión cambió. Vuelve a Hoy para abrir el entrenamiento vigente.');
     const readiness = sessionPlanId ? await this.getReadiness(sessionPlanId) : null;
-    if ('session' in today && (!sessionPlanId || !this.validReadiness(readiness, sessionPlanId))) throw new Error('Se requiere una decisión de preparación vigente para esta sesión');
+    if (('session' in today && !sessionPlanId) || (sessionPlanId && !this.validReadiness(readiness, sessionPlanId))) throw new Error('Se requiere una decisión de preparación vigente para esta sesión');
     if (readiness && (readiness.sessionStatus === 'ABORTED' || readiness.sessionStatus === 'PATTERN_STOPPED' || readiness.sessionStatus === 'REVIEW_REQUIRED')) throw new Error('La decisión de preparación bloquea esta sesión');
+    const restrictionSnapshot = await readRestrictions(this.db);
     const active = await this.db.getFirstAsync<ActiveRow>("SELECT id, actual_snapshot_json FROM workout_session WHERE status = 'IN_PROGRESS' ORDER BY rowid DESC LIMIT 1");
+    if (active && !active.actual_snapshot_json) throw new Error('El entrenamiento guardado no tiene una copia verificable. Se conserva el registro original para revisión.');
     if (active?.actual_snapshot_json) {
       const draft = JSON.parse(active.actual_snapshot_json) as WorkoutDraft;
-      if ('session' in today && (draft.sessionPlanId !== sessionPlanId || !this.validReadiness(draft.readiness, sessionPlanId!) || draft.readiness?.sessionStatus !== readiness?.sessionStatus)) throw new Error('El entrenamiento guardado no consume la preparación vigente');
+      if (sessionPlanId && (draft.sessionPlanId !== sessionPlanId || !this.validReadiness(draft.readiness, sessionPlanId!) || draft.readiness?.sessionStatus !== readiness?.sessionStatus)) throw new Error('El entrenamiento guardado no consume la preparación vigente');
+      enforceRestrictions(draft, restrictionSnapshot);
       const wallClock = Date.parse(this.now());
       const timerNow = draft.timer?.runningSince !== null && draft.timer?.runningSince !== undefined
         && wallClock >= draft.timer.runningSince && wallClock - draft.timer.runningSince <= 86_400_000
         ? wallClock : draft.timer?.runningSince ?? undefined;
-      return { ...draft, exercises: draft.exercises.map((exercise) => ({ ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: set.completed ?? set.disposition === 'COMPLETED', skipped: set.skipped ?? set.disposition === 'SKIPPED', disposition: set.disposition ?? 'PENDING' })) })), safetyModifications: draft.safetyModifications ?? [], timer: restoreTimer(draft.timer, timerNow) };
+      return { ...draft, ...(readiness ? { readiness } : {}), restrictionSnapshot, exercises: draft.exercises.map((exercise) => ({ ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: set.completed ?? set.disposition === 'COMPLETED', skipped: set.skipped ?? set.disposition === 'SKIPPED', disposition: set.disposition ?? 'PENDING' })) })), safetyModifications: draft.safetyModifications ?? [], timer: restoreTimer(draft.timer, timerNow) };
     }
     const id = active?.id ?? this.createId();
     let exercises: WorkoutExerciseDraft[] = executableExercises(session).map(({ exercise, blockRole }) => ({
@@ -173,7 +190,8 @@ export class WorkoutService {
       sets: exercise.sets.slice(0, Math.max(1, exercise.sets.length - 1)).map((set) => ({ ...set, load: set.load ? String(Math.round(numeric(set.load) * 0.9 * 4) / 4) : set.load })),
     }));
     if (readiness?.sessionStatus === 'PATTERN_STOPPED') exercises = exercises.filter((exercise) => exercise.requirement === 'EXACT');
-    const draft: WorkoutDraft = { id, ...(sessionPlanId ? { sessionPlanId } : {}), ...(readiness ? { readiness } : {}), activeExerciseIndex: 0, timer: restoreTimer(), safetyModifications: [], exercises };
+    const draft: WorkoutDraft = { id, revision: 0, restrictionSnapshot, ...(sessionPlanId ? { sessionPlanId } : {}), ...(readiness ? { readiness } : {}), activeExerciseIndex: 0, timer: restoreTimer(), safetyModifications: [], exercises };
+    enforceRestrictions(draft, restrictionSnapshot);
     const snapshot = JSON.stringify(draft);
     if (active) await this.repository.updateActualSnapshot(id, snapshot);
     else await this.repository.create({ id, ...(sessionPlanId ? { sessionPlanId } : {}), status: 'IN_PROGRESS', prescribedSnapshot: JSON.stringify(session), actualSnapshot: snapshot });
@@ -184,7 +202,8 @@ export class WorkoutService {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
     const timestamp = this.now();
     await this.db.withTransactionAsync(async () => {
-      await this.repository.updateActualSnapshot(draft.id, JSON.stringify(draft));
+      const guard = mutationSafety(draft);
+      await this.repository.updateActualSnapshot(draft.id, JSON.stringify({ ...draft, revision: (draft.revision ?? 0) + 1 }), guard);
       await this.db.runAsync('DELETE FROM set_log WHERE workout_session_id = ?', draft.id);
       for (const [exerciseIndex, exercise] of draft.exercises.entries()) {
         for (const [setIndex, set] of exercise.sets.entries()) {
@@ -236,14 +255,23 @@ export class WorkoutService {
         );
       }
     });
+    draft.revision = (draft.revision ?? 0) + 1;
+    this.checkpointContents.set(draft.id, this.content(draft));
   }
 
   private snapshotQueue: Promise<void> = Promise.resolve();
   private asyncSnapshots = false;
+  private queuedSnapshot: { draft: WorkoutDraft; revision: number; lineage: Set<number>; saved: boolean } | undefined;
 
-  private immediateSnapshot(id: string, snapshot: string): boolean {
-    if (this.asyncSnapshots) return false;
-    try { return this.repository.updateActualSnapshotSync(id, snapshot); }
+  private immediateSnapshot(draft: WorkoutDraft): boolean {
+    if (this.asyncSnapshots || this.queuedSnapshot) return false;
+    try {
+      const guard = mutationSafety(draft);
+      const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
+      const saved = this.repository.updateActualSnapshotSync(draft.id, JSON.stringify({ ...draft, revision }), guard);
+      if (saved) { draft.revision = revision; this.checkpointContents.set(draft.id, this.content(draft)); }
+      return saved;
+    }
     catch (error) {
       // The web worker uses a bounded spin loop. Once it times out, keep all
       // subsequent edits on one FIFO queue so an older async save cannot win.
@@ -259,16 +287,31 @@ export class WorkoutService {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
     // Use the same immediate checkpoint as text/background saves when available.
     // This prevents a delayed autosave from overwriting a newer confirmed edit.
-    const snapshot = JSON.stringify(draft);
-    if (this.immediateSnapshot(draft.id, snapshot)) return;
-    const pending = this.snapshotQueue.then(() => this.repository.updateActualSnapshot(draft.id, snapshot));
+    if (this.immediateSnapshot(draft)) return;
+    const predecessor = this.queuedSnapshot;
+    const queued = { draft, revision: draft.revision ?? 0, lineage: new Set([draft.revision ?? 0]), saved: false };
+    if (predecessor?.draft.id === draft.id) for (const revision of predecessor.lineage) queued.lineage.add(revision);
+    this.queuedSnapshot = queued;
+    const pending = this.snapshotQueue.then(async () => {
+      if (predecessor?.saved && predecessor.draft.id === draft.id && predecessor.lineage.has(queued.revision)) draft.revision = predecessor.draft.revision ?? 0;
+      // A later queued edit may be based on this promoted revision while this write is still pending.
+      queued.revision = draft.revision ?? 0;
+      queued.lineage.add(queued.revision);
+      const guard = mutationSafety(draft);
+      const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
+      await this.repository.updateActualSnapshot(draft.id, JSON.stringify({ ...draft, revision }), guard);
+      draft.revision = revision;
+      this.checkpointContents.set(draft.id, this.content(draft));
+      queued.lineage.add(revision);
+      queued.saved = true;
+    }).finally(() => { if (this.queuedSnapshot === queued) this.queuedSnapshot = undefined; });
     this.snapshotQueue = pending.catch(() => undefined);
     await pending;
   }
 
   saveDraftSnapshotBeforeProcessStop(draft: WorkoutDraft): boolean {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
-    return this.immediateSnapshot(draft.id, JSON.stringify(draft));
+    return this.immediateSnapshot(draft);
   }
   recordSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number, patch: Partial<WorkoutSetDraft>): WorkoutDraft {
     const exercise = draft.exercises[exerciseIndex];
@@ -285,6 +328,11 @@ export class WorkoutService {
     const current = draft.exercises[exerciseIndex];
     if (!current) throw new RangeError('Workout exercise does not exist');
     return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, exerciseId, replacement: { fromExerciseId: item.exerciseId, reason } } : item) };
+  }
+  async completeSetAndSave(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): Promise<WorkoutDraft> {
+    const next = this.completeSet(draft, exerciseIndex, setIndex);
+    await this.saveDraftSnapshot(next);
+    return next;
   }
   completeSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): WorkoutDraft {
     return this.recordSet(draft, exerciseIndex, setIndex, { completed: true, skipped: false, disposition: 'COMPLETED', skipReason: undefined });
@@ -347,7 +395,7 @@ export class WorkoutService {
     if (existing?.status === 'COMPLETED' && existing.completedAt) return this.summary(draft, existing.completedAt);
     const completedAt = this.now();
     await this.db.withTransactionAsync(async () => {
-      await this.repository.complete(draft.id, JSON.stringify({ ...draft, timer: restoreTimer(draft.timer) }), completedAt);
+      await this.repository.complete(draft.id, JSON.stringify({ ...draft, timer: restoreTimer(draft.timer) }), completedAt, mutationSafety(draft));
       if (!draft.sessionPlanId) return;
       const plan = await this.db.runAsync("UPDATE session_plan SET status = 'COMPLETED', updated_at = ? WHERE id = ? AND status = 'PLANNED'", completedAt, draft.sessionPlanId);
       if (plan.changes !== 1) throw new Error(`Session plan ${draft.sessionPlanId} is not planned`);

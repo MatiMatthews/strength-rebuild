@@ -350,7 +350,7 @@ export class ProgramService {
     const [today, active, restrictions, review, pendingReview] = await Promise.all([
       this.getToday(),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM workout_session WHERE status = 'IN_PROGRESS'"),
-      this.db.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM active_restriction'),
+      this.db.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM active_restriction WHERE active = 1'),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM training_week w JOIN cycle c ON c.id = w.cycle_id WHERE w.status = 'REVIEW' AND c.status = 'ACTIVE'"),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM progression_proposal WHERE decision IS NULL AND policy_version NOT IN ('progression-v1', 'weekly-review-v1')"),
     ]);

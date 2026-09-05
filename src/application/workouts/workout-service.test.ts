@@ -24,26 +24,34 @@ describe('WorkoutService', () => {
     expect(() => service.skipSet(completed, 0, 0, 'Remove')).toThrow('Completed work cannot be omitted');
   });
 
-  it('orders fallback snapshots so a slow autosave cannot overwrite a confirmed omission', async () => {
+  it.each(['original', 'promoted'])('orders overlapping fallback snapshots based on the %s revision', async (source) => {
     const sqlite = new DatabaseSync(':memory:');
     const writes: { params: SqlValue[]; finish: () => void }[] = [];
-    const db = { runAsync: (sql: string, ...params: SqlValue[]) => new Promise(resolve => {
+    const db = { getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never, runAsync: (sql: string, ...params: SqlValue[]) => new Promise(resolve => {
       writes.push({ params, finish: () => { const result = sqlite.prepare(sql).run(...params); resolve({ changes: Number(result.changes) }); } });
     }) } as unknown as RepositoryDatabase;
-    sqlite.exec("CREATE TABLE workout_session (id TEXT, status TEXT, actual_snapshot_json TEXT, updated_at TEXT); INSERT INTO workout_session VALUES ('draft', 'IN_PROGRESS', '{}', '')");
+    await migrateDatabase({ exec: async (sql: string) => { sqlite.exec(sql); }, getFirstAsync: async (sql: string) => (sqlite.prepare(sql).get() ?? null) as never, runAsync: async (sql: string, ...params: SqlValue[]) => { const r = sqlite.prepare(sql).run(...params); return { changes: Number(r.changes), lastInsertRowId: Number(r.lastInsertRowid) }; } } as MigrationDatabase);
+    sqlite.exec("INSERT INTO workout_session (id,schema_version,created_at,updated_at,status,prescribed_snapshot_json,actual_snapshot_json) VALUES ('draft',1,'now','now','IN_PROGRESS','{}','{}')");
     const service = new WorkoutService(db);
-    const draft = { id: 'draft', exercises: [], safetyModifications: [] } as import('./workout-service').WorkoutDraft;
+    const draft = { id: 'draft', exercises: [{exerciseId: 'bodyweight-activation', originalExerciseId: 'bodyweight-activation', requirement: 'CAPABILITY', sets: [{load: '',reps:'5',rir:'3',technique:'Limpia',pain:0,notes:'',completed:false,skipped:false,disposition:'PENDING'}]}], safetyModifications: [] } as import('./workout-service').WorkoutDraft;
+    const originalDraft = { ...draft };
     const older = service.saveDraftSnapshot(draft);
-    const newer = service.saveDraftSnapshot({ ...draft, activeExerciseIndex: 2 });
+    const newerDraft = { ...draft, activeExerciseIndex: 2 };
+    const newer = service.saveDraftSnapshot(newerDraft);
     await Promise.resolve();
     expect(writes).toHaveLength(1);
     writes[0]!.finish();
     await older;
     await Promise.resolve();
     expect(writes).toHaveLength(2);
+    const newest = service.saveDraftSnapshot({ ...(source === 'original' ? originalDraft : newerDraft), activeExerciseIndex: 3 });
     writes[1]!.finish();
     await newer;
-    expect(JSON.parse(String(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()!.actual_snapshot_json)).activeExerciseIndex).toBe(2);
+    await Promise.resolve();
+    expect(writes).toHaveLength(3);
+    writes[2]!.finish();
+    await newest;
+    expect(JSON.parse(String(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()!.actual_snapshot_json)).activeExerciseIndex).toBe(3);
     sqlite.close();
   });
 

@@ -33,7 +33,8 @@ describe('full persisted cycle lifecycle', () => {
     await programs.activateCycle('hypertrophy');
     const today = (await programs.getToday())!;
     const workouts = new WorkoutService(db, repositories.workouts, () => '2026-08-18T02:15:00.000Z', () => 'hypertrophy-session');
-    let draft = await workouts.startOrResume(today.session);
+    await workouts.applyReadiness(today, { pain: 0, painTrend: 'stable', region: 'other', reproducedByBraceCoughOrSneeze: false });
+    let draft = await workouts.startOrResume(today);
     draft = workouts.replaceExercise(draft, 0, replacements[0]!.exercise.id, 'equipment-unavailable');
     draft = draft.exercises.reduce((current, exercise, exerciseIndex) => exercise.sets.reduce((setsDraft, _set, setIndex) => workouts.completeSet(setsDraft, exerciseIndex, setIndex), current), draft);
     await workouts.complete(draft);

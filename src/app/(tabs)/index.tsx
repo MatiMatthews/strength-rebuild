@@ -27,6 +27,7 @@ export default function TodayRoute() {
   const onReviewChanged = useCallback(() => setRevision(value => value + 1), []);
   const [scenarioReady, setScenarioReady] = useState(false);
   const [state, setState] = useState<TodayState>({ kind: 'empty' });
+  const [activeReadiness, setActiveReadiness] = useState<PersistedReadiness | null>(null);
   const [persistedReadiness, setPersistedReadiness] = useState<PersistedReadiness | null>(null);
   const navigateToWorkout = useCallback(() => { markWorkoutNavigation(); router.push('/workout'); }, [router]);
   useEffect(() => {
@@ -50,13 +51,14 @@ export default function TodayRoute() {
         restrictionActive: context.restrictionActive || decision?.sessionStatus === 'MODIFIED',
         reviewRequired: context.reviewRequired,
       }));
+      setActiveReadiness(context.activeSession ? decision : null);
       setPersistedReadiness(context.activeSession && decision && ['READY', 'MODIFIED'].includes(decision.sessionStatus) ? null : decision);
     }).catch(() => { if (live) setLoadFailed(true); });
     return () => { live = false; };
   }, [programs, requestedScenario, scenarioReady, workouts, revision]));
   if (loadFailed) return <DataFailureScreen onRetry={() => setRevision(value => value + 1)} />;
   if (requestedScenario === 'data-failure' && scenarioReady) return <DataFailureScreen onRetry={() => setScenarioReady(false)} />;
-  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen onOpenReview={() => router.push('/weekly-review' as Href)} recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} savedReadiness={persistedReadiness} initialReadinessInput={persistedReadiness?.input ?? null} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
+  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen activeReadiness={activeReadiness} onOpenReview={() => router.push('/weekly-review' as Href)} recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} savedReadiness={persistedReadiness} initialReadinessInput={persistedReadiness?.input ?? null} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
     if (!('data' in state)) throw new Error('No planned session is available for readiness');
     return workouts.applyReadiness(state.data, input);
   }} onStartWorkout={navigateToWorkout} /></FocusedScene>;

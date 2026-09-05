@@ -45,7 +45,7 @@ test('omission and completed-set deletion remain independent through cancellatio
   await expect.poll(async () => (await snapshot()).exercises[0].sets[0].skipReason).toBe('Equipo ocupado');
   const omitted = await snapshot();
   expect(omitted.setDeletions).toEqual(deleted.setDeletions);
-  const expectedOmitted = structuredClone(deleted);
+  const expectedOmitted = { ...structuredClone(deleted), revision: deleted.revision + 1 };
   Object.assign(expectedOmitted.exercises[0].sets[0], { completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Equipo ocupado' });
   expect(omitted).toEqual(expectedOmitted);
   await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Unrelated later edit');
