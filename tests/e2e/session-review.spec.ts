@@ -4,7 +4,7 @@ import { startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
 // Complete the first session through production controls and independently read SQLite.
-test('finishing the first session permits preparing the next workout', async ({ page }, info) => {
+for (const choice of ['Aceptar recomendación de sesión', 'Mantener plan de sesión', 'Rechazar recomendación de sesión']) test(`session review: ${choice} persists and permits Wednesday`, async ({ page }, info) => {
   await startSyntheticWorkout(page);
   for (let exercise = 0; exercise < 40; exercise += 1) {
     const count = await page.getByTestId('set-entry-row').count();
@@ -31,6 +31,16 @@ test('finishing the first session permits preparing the next workout', async ({ 
   await page.screenshot({ path: info.outputPath('plan-after-completion.png'), fullPage: true });
   await page.goto('/');
   await expect(page.getByTestId('brand-masthead')).toBeVisible();
+  await expect(page.getByTestId('session-recommendations')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: choice, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: choice, exact: true }).click();
+  await expect(page.getByRole('button', { name: choice, exact: true })).toHaveCount(0);
+  await page.reload();
+  const decided = await readPersistence(page, info);
+  expect(decided.proposals[0]?.decision).toBe(choice.startsWith('Aceptar') ? 'ACCEPTED' : choice.startsWith('Mantener') ? 'KEPT' : 'REJECTED');
+  expect(decided.workouts).toEqual(persisted.workouts);
+  if (!choice.startsWith('Aceptar')) expect(decided.sessionSnapshots).toEqual(persisted.sessionSnapshots);
   const todayText = await page.locator('body').innerText();
   const evidence = { persisted, weeklyReviewVisible, todayText };
   writeFileSync(info.outputPath('next-workout-readback.json'), JSON.stringify(evidence, null, 2));

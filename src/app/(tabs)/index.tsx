@@ -10,17 +10,20 @@ import { FocusedScene } from '@/features/navigation/FocusedScene';
 import { markWorkoutNavigation } from '@/features/navigation/workout-navigation-session';
 import { DataFailureScreen } from '@/features/resilience/DataFailureScreen';
 import { useLocalSearchParams } from 'expo-router';
+import { SessionReviewPanel } from '@/features/review/SessionReviewPanel';
 import type { SafetyInput } from '@/domain/safety';
 
 export default function TodayRoute() {
   const router = useRouter() as { push(href: Href | '/settings'): void };
   const isFocused = useIsFocused();
-  const { programs, workouts } = useDataServices();
+  const { programs, workouts, sessionReviews } = useDataServices();
   const { srScenario } = useLocalSearchParams<{ srScenario?: string }>();
   const webScenario = Platform.OS === 'web' && typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('srScenario') ?? undefined
     : undefined;
   const requestedScenario = webScenario ?? srScenario;
+  const [revision, setRevision] = useState(0);
+  const onReviewChanged = useCallback(() => setRevision(value => value + 1), []);
   const [scenarioReady, setScenarioReady] = useState(false);
   const [state, setState] = useState<TodayState>({ kind: 'empty' });
   const [persistedReadiness, setPersistedReadiness] = useState<SafetyInput | null>(null);
@@ -52,9 +55,9 @@ export default function TodayRoute() {
               : { pain: 1, painTrend: 'stable' });
     });
     return () => { live = false; };
-  }, [programs, requestedScenario, scenarioReady, workouts]));
+  }, [programs, requestedScenario, scenarioReady, workouts, revision]));
   if (requestedScenario === 'data-failure' && scenarioReady) return <DataFailureScreen onRetry={() => setScenarioReady(false)} />;
-  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen initialReadinessInput={persistedReadiness} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
+  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} initialReadinessInput={persistedReadiness} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
     if (!('data' in state)) throw new Error('No planned session is available for readiness');
     await workouts.applyReadiness(state.data, { ...input, region: input.abdominalRestrictionActive ? 'abdominal' : 'other', reproducedByBraceCoughOrSneeze: false });
   }} onStartWorkout={navigateToWorkout} /></FocusedScene>;

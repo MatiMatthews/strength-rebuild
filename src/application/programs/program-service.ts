@@ -352,7 +352,7 @@ export class ProgramService {
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM workout_session WHERE status = 'IN_PROGRESS'"),
       this.db.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM active_restriction'),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM training_week WHERE status = 'REVIEW'"),
-      this.db.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM progression_proposal WHERE decision IS NULL'),
+      this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM progression_proposal WHERE decision IS NULL AND policy_version <> 'progression-v1'"),
     ]);
     return {
       activeSession: (active?.count ?? 0) > 0,

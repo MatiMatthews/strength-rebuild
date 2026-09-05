@@ -4,6 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { UnitOfWork } from '../../application/transactions/unit-of-work';
 import { ProgramService } from '../../application/programs/program-service';
 import { WorkoutService } from '../../application/workouts/workout-service';
+import { SessionReviewService } from '../../application/progression/session-review';
 import { WeeklyReviewService } from '../../application/progression/weekly-review';
 import { BackupService } from '../../application/export';
 import { createRepositories, type Repositories, type RepositoryDatabase } from '.';
@@ -14,6 +15,7 @@ export interface DataServices {
   programs: ProgramService;
   workouts: WorkoutService;
   weeklyReviews: WeeklyReviewService;
+  sessionReviews: SessionReviewService;
   backups: BackupService;
 }
 
@@ -29,6 +31,7 @@ export function RepositoryProvider({ children }: PropsWithChildren) {
       programs: new ProgramService(database),
       workouts: new WorkoutService(database, repositories.workouts),
       weeklyReviews: new WeeklyReviewService(database),
+      sessionReviews: new SessionReviewService(database),
       backups: new BackupService(database),
     };
   }, [database]);
