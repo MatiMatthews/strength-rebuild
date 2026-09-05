@@ -73,3 +73,13 @@ it('reads legacy audit events deterministically and keeps new sequence order acr
  expect(history[0]!.corrections!.map(e=>e.beforeLoad)).toEqual(['60','58','55']);
  expect((await f.db.getFirstAsync<{actual_snapshot_json:string}>('SELECT actual_snapshot_json FROM workout_session'))!.actual_snapshot_json).toBe(row!.actual_snapshot_json);f.sqlite.close();
 });
+
+it('preserves unrelated sessions and rejects pending work inside a completed snapshot',async()=>{
+ const f=await fixture();const row=await f.db.getFirstAsync<{actual_snapshot_json:string}>('SELECT actual_snapshot_json FROM workout_session');
+ const actual=JSON.parse(row!.actual_snapshot_json);actual.exercises[0].sets[2]={...actual.exercises[0].sets[2],disposition:'PENDING',completed:false,skipped:false};
+ await f.db.runAsync('UPDATE workout_session SET actual_snapshot_json=?',JSON.stringify(actual));
+ await f.db.runAsync("INSERT INTO workout_session (id,schema_version,created_at,updated_at,status,prescribed_snapshot_json,actual_snapshot_json,completed_at) SELECT 'unrelated',schema_version,created_at,updated_at,status,prescribed_snapshot_json,actual_snapshot_json,completed_at FROM workout_session WHERE id='recorded'");
+ const before=await f.service.listHistory();await expect(f.service.correctHistory({...f.input,setIndex:2})).rejects.toThrow();
+ await f.service.correctHistory(f.input);const after=await f.service.listHistory();
+ expect(after.find(s=>s.id==='unrelated')).toEqual(before.find(s=>s.id==='unrelated'));expect(after.find(s=>s.id==='recorded')!.actual.exercises[0]!.sets[2]).toEqual(actual.exercises[0].sets[2]);f.sqlite.close();
+});
