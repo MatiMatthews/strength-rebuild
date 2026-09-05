@@ -119,7 +119,7 @@ describe("HistoryReferenceScreen", () => {
     expect(view.getByLabelText("Filtrar por ciclo")).toBeTruthy();
     expect(view.getByLabelText("Filtrar por ejercicio")).toBeTruthy();
     expect(view.getByText(/Prescrito:.*Real:/)).toBeTruthy();
-    fireEvent.press(view.getByText("Corregir serie"));
+    fireEvent.press(view.getByText("Corregir serie 1"));
     await waitFor(() =>
       expect(view.getAllByText(/motivo obligatorio/i).length).toBeGreaterThan(
         0,

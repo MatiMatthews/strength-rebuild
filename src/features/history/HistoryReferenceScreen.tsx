@@ -4,7 +4,7 @@ import {
   Dumbbell,
   ShieldCheck,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import type { WorkoutHistoryItem } from "@/application/workouts/workout-service";
@@ -30,6 +30,7 @@ export interface HistoryWorkouts {
     setIndex: number;
     load: string;
     reason: string;
+    exerciseIndex?: number; expectedLoad?: string; requestId?: string;
   }): Promise<void>;
 }
 
@@ -47,6 +48,7 @@ export function HistoryReferenceScreen({
   refreshKey?: number;
 }) {
   const [history, setHistory] = useState<WorkoutHistoryItem[]>([]);
+  const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [cycleFilter, setCycleFilter] = useState("");
   const [exerciseFilter, setExerciseFilter] = useState("");
@@ -55,13 +57,17 @@ export function HistoryReferenceScreen({
     exerciseId: string;
     setIndex: number;
     load: string;
+    exerciseIndex: number; expectedLoad: string; requestId: string;
   } | null>(null);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
     workouts
       .listHistory()
-      .then(setHistory)
+      .then(items => { setHistory(items); setLoadError(""); })
+      .catch(error => setLoadError(error instanceof Error ? error.message : "No se pudo cargar el historial. Conservamos tus registros."))
       .finally(() => setLoaded(true));
   }, [refreshKey, workouts]);
   const filteredHistory = useMemo(
@@ -94,11 +100,12 @@ export function HistoryReferenceScreen({
     [filteredHistory],
   );
   const submitCorrection = async () => {
-    if (!correction || !workouts.correctHistory) return;
+    if (!correction || !workouts.correctHistory || savingRef.current) return;
     if (!reason.trim()) {
       setMessage("El motivo obligatorio debe explicar la corrección.");
       return;
     }
+    savingRef.current = true; setSaving(true);
     try {
       await workouts.correctHistory({ ...correction, reason });
       setHistory(await workouts.listHistory());
@@ -113,7 +120,7 @@ export function HistoryReferenceScreen({
           ? error.message
           : "No se pudo registrar la corrección.",
       );
-    }
+    } finally { savingRef.current = false; setSaving(false); }
   };
 
   return (
@@ -124,7 +131,7 @@ export function HistoryReferenceScreen({
         <Panel>
           <AppText>Cargando historial…</AppText>
         </Panel>
-      ) : history.length === 0 ? (
+      ) : loadError ? (<FeedbackBanner message={loadError} tone="danger" />) : history.length === 0 ? (
         <Panel>
           <AppText variant="bodyStrong">
             Todavía no hay sesiones terminadas
@@ -265,7 +272,7 @@ export function HistoryReferenceScreen({
                   Prescrito: {session.prescribed.exercises.length} ejercicios ·
                   Real: {session.actual.exercises.length} ejercicios
                 </AppText>
-                {session.actual.exercises.map((exercise) => {
+                {session.actual.exercises.map((exercise, exerciseIndex) => {
                   const completed = exercise.sets.filter(
                     (set) =>
                       set.disposition === "COMPLETED" ||
@@ -276,9 +283,8 @@ export function HistoryReferenceScreen({
                   const omitted = exercise.sets.filter(
                     (set) => set.disposition === "SKIPPED" || set.skipped,
                   );
-                  const first = completed[0];
                   return (
-                    <View key={exercise.exerciseId}>
+                    <View key={`${exercise.exerciseId}-${exerciseIndex}`}>
                       <AppText>{exerciseName(exercise.exerciseId)}</AppText>
                       {!exerciseNames.has(exercise.exerciseId) ? (
                         <AppText color="muted">
@@ -303,26 +309,20 @@ export function HistoryReferenceScreen({
                       ) : (
                         <AppText>Sin series completadas</AppText>
                       )}
-                      {first && workouts.correctHistory ? (
-                        <ActionButton
-                          accessibilityLabel={`Corregir historial de ${exerciseName(exercise.exerciseId)}`}
-                          onPress={() => {
-                            setCorrection({
-                              workoutId: session.id,
-                              exerciseId: exercise.exerciseId,
-                              setIndex: exercise.sets.indexOf(first),
-                              load: first.load,
-                            });
-                            setReason("");
-                            setMessage(
-                              "El motivo obligatorio debe explicar la corrección antes de confirmar.",
-                            );
-                          }}
-                          tone="secondary"
-                        >
-                          Corregir serie
-                        </ActionButton>
-                      ) : null}
+                      {exercise.sets.map((set, setIndex) => completed.includes(set) && workouts.correctHistory ? (
+                        <View key={setIndex}>
+                          <AppText>Serie {setIndex + 1}: {set.load || "Sin carga"} kg × {set.reps}</AppText>
+                          <ActionButton
+                            accessibilityLabel={`Corregir serie ${setIndex + 1} de ${exerciseName(exercise.exerciseId)}`}
+                            disabled={saving}
+                            onPress={() => {
+                              setCorrection({workoutId:session.id, exerciseId:exercise.exerciseId, exerciseIndex, setIndex,
+                                load:set.load, expectedLoad:set.load, requestId:`edit-${Date.now()}-${Math.random().toString(36).slice(2)}`});
+                              setReason(""); setMessage("");
+                            }} tone="secondary"
+                          >Corregir serie {setIndex + 1}</ActionButton>
+                        </View>
+                      ) : null)}
                     </View>
                   );
                 })}
@@ -338,6 +338,7 @@ export function HistoryReferenceScreen({
               >
                 Confirmar corrección
               </AppText>
+              <AppText variant="bodyStrong">{exerciseName(correction.exerciseId)} · serie {correction.setIndex + 1} · carga actual {correction.expectedLoad || "0"} kg</AppText>
               <AppText color="muted">
                 La sesión original es inmutable. Se agregará un evento auditado
                 con la interpretación anterior y la corregida.
@@ -357,10 +358,12 @@ export function HistoryReferenceScreen({
               />
               <ActionButton
                 accessibilityLabel="Confirmar corrección del historial"
+                disabled={saving}
                 onPress={submitCorrection}
               >
                 Confirmar corrección
               </ActionButton>
+              <ActionButton accessibilityLabel="Cancelar corrección" disabled={saving} tone="secondary" onPress={() => { setCorrection(null); setReason(""); setMessage(""); }}>Cancelar corrección</ActionButton>
             </Panel>
           ) : null}
           {message ? (
@@ -386,7 +389,7 @@ export function HistoryReferenceScreen({
             ) : (
               analytics.corrections.map((item, index) => (
                 <AppText key={`${item.sessionId}-${item.kind}-${index}`}>
-                  • {item.detail}
+                  • {item.exerciseId ? `${exerciseName(item.exerciseId)} · ` : ""}{item.detail}
                 </AppText>
               ))
             )}

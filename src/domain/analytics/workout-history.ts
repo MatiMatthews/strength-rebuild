@@ -1,7 +1,7 @@
 import type { WorkoutHistoryItem } from '../../application/workouts/workout-service';
 
 export interface ExerciseTrend { exerciseId: string; totalVolume: number; bestE1rm: number; latestPain: number; points: readonly number[] }
-export interface HistoryCorrection { sessionId: string; kind: 'replacement' | 'safety'; detail: string }
+export interface HistoryCorrection { sessionId: string; kind: 'replacement' | 'safety' | 'load'; detail: string; exerciseId?: string }
 
 const number = (value: string) => {
   const parsed = Number(value.trim().replace(',', '.'));
@@ -34,6 +34,7 @@ export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plan
       exerciseMap.set(exercise.exerciseId, current);
       if (exercise.replacement) corrections.push({ sessionId: session.id, kind: 'replacement', detail: `${exercise.replacement.fromExerciseId} → ${exercise.exerciseId}: ${exercise.replacement.reason}` });
     }
+    for (const event of session.corrections ?? []) corrections.push({ sessionId:session.id, kind:'load', exerciseId:event.exerciseId, detail:`Corrección ${event.order} · ejercicio ${event.exerciseIndex+1} · serie ${event.setIndex+1} · original ${event.originalLoad} kg · ${event.beforeLoad} → ${event.afterLoad} kg · ${event.reason}` });
     for (const safety of session.actual.safetyModifications) corrections.push({ sessionId: session.id, kind: 'safety', detail: safety.explanation });
   }
 

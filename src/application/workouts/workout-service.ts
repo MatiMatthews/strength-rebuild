@@ -1,3 +1,4 @@
+import { correctionLoad, isRecordedSet, projectHistory, type SetCorrection } from './history-corrections';
 import { enforceRestrictions, mutationSafety, readRestrictions } from './persisted-safety';
 import { effectiveSession } from '../programs/legacy-repair';
 import type { TodayData } from '../programs/program-service';
@@ -17,8 +18,8 @@ export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT'
 export interface SafetyModification extends SafetyResult { exerciseIndex: number; setIndex: number; recordedAt: string }
 export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
-export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft }
-export interface HistoryCorrectionInput { workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string }
+export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft; corrections?: SetCorrection[] }
+export interface HistoryCorrectionInput { workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string; exerciseIndex?: number; expectedLoad?: string; requestId?: string }
 export interface ReadinessInput extends SafetyInput {
   readonly region: 'lumbar' | 'abdominal' | 'other';
   readonly reproducedByBraceCoughOrSneeze: boolean;
@@ -352,39 +353,50 @@ export class WorkoutService {
   }
   async listHistory(): Promise<WorkoutHistoryItem[]> {
     const rows = await this.db.getAllAsync<HistoryRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE status = 'COMPLETED' ORDER BY completed_at DESC");
-    return rows.map((row) => ({ id: row.id, completedAt: row.completed_at, prescribed: JSON.parse(row.prescribed_snapshot_json) as TodayData['session'], actual: JSON.parse(row.actual_snapshot_json) as WorkoutDraft }));
+    return Promise.all(rows.map(async row => ({ id: row.id, completedAt: row.completed_at, prescribed: JSON.parse(row.prescribed_snapshot_json) as TodayData['session'],
+      ...await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft) })));
   }
+  private correctionBusy = false;
   async correctHistory(input: HistoryCorrectionInput): Promise<void> {
-    const reason = input.reason.trim();
-    if (!reason) throw new Error('A correction reason is required');
-    if (!Number.isInteger(input.setIndex) || input.setIndex < 0) throw new RangeError('Correction set does not exist');
-    const load = numeric(input.load, Number.NaN);
-    if (!Number.isFinite(load) || load < 0) throw new Error('Correction load must be a valid number');
-
-    const row = await this.db.getFirstAsync<HistoryRow>(
-      "SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE id = ? AND status = 'COMPLETED'",
-      input.workoutId,
-    );
-    if (!row) throw new Error('Completed workout does not exist');
-    const original = JSON.parse(row.actual_snapshot_json) as WorkoutDraft;
-    const exercise = original.exercises.find((item) => item.exerciseId === input.exerciseId);
-    const set = exercise?.sets[input.setIndex];
-    if (!exercise || !set) throw new RangeError('Correction set does not exist');
-    const corrected = { ...set, load: String(load) };
-    const timestamp = this.now();
-    const id = `${input.workoutId}-correction-${timestamp}-${input.setIndex}`;
-
-    await this.db.runAsync(
-      `INSERT INTO decision_log
-       (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
-       VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v2.1', ?, ?, 1, ?)`,
-      id,
-      timestamp,
-      timestamp,
-      JSON.stringify({ workoutId: input.workoutId, exerciseId: input.exerciseId, setIndex: input.setIndex, reason, before: set, after: corrected }),
-      JSON.stringify({ originalSnapshotPreserved: true, correctedLoad: load }),
-      timestamp,
-    );
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (!reason) throw new Error('El motivo de la corrección es obligatorio.');
+    if (!Number.isInteger(input.setIndex) || input.setIndex < 0) throw new RangeError('La serie no existe.');
+    const load = correctionLoad(input.load);
+    if (this.correctionBusy) throw new Error('Ya se está guardando una corrección.');
+    this.correctionBusy = true;
+    try {
+      await this.db.withTransactionAsync(async () => {
+        const row = await this.db.getFirstAsync<HistoryRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE id = ? AND status = 'COMPLETED'", input.workoutId);
+        if (!row) throw new Error('La sesión completada no existe.');
+        const original = JSON.parse(row.actual_snapshot_json) as WorkoutDraft;
+        const {actual} = await projectHistory(this.db, row.id, original);
+        const matches = actual.exercises.map((e,i) => e.exerciseId === input.exerciseId ? i : -1).filter(i => i >= 0);
+        const exerciseIndex = input.exerciseIndex ?? (matches.length === 1 ? matches[0] : -1);
+        if (!Number.isInteger(exerciseIndex)) throw new Error('El ejercicio no se puede identificar.');
+        const exercise = actual.exercises[exerciseIndex!];
+        const before = exercise?.sets[input.setIndex];
+        if (!before || exercise?.exerciseId !== input.exerciseId || !isRecordedSet(before)) throw new Error('Solo puedes corregir una serie completada.');
+        if (input.requestId) {
+          const previous = await this.db.getAllAsync<{inputs_json:string}>("SELECT inputs_json FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION'");
+          const replay = previous.map(e => JSON.parse(e.inputs_json)).find(e => e.requestId === input.requestId);
+          if (replay) {
+            if (replay.workoutId !== input.workoutId || replay.exerciseIndex !== exerciseIndex || replay.setIndex !== input.setIndex || replay.after.load !== String(load) || replay.reason !== reason) throw new Error('La solicitud de corrección cambió.');
+            return;
+          }
+        }
+        if (numeric(before.load, Number.NaN) === load) return;
+        if (input.expectedLoad !== undefined && input.expectedLoad !== before.load) throw new Error('La serie cambió. Vuelve a abrir la corrección.');
+        const count = await this.db.getFirstAsync<{sequence:number}>("SELECT COALESCE(MAX(CAST(json_extract(inputs_json, '$.sequence') AS INTEGER)), 0) + 1 AS sequence FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION'");
+        const sequence = count!.sequence;
+        const timestamp = this.now();
+        await this.db.runAsync(`INSERT INTO decision_log
+          (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
+          VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v2', ?, ?, 1, ?)`,
+          `history-correction-${sequence}`, timestamp, timestamp,
+          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, load:String(load)}}),
+          JSON.stringify({originalSnapshotPreserved:true, correctedLoad:load}), timestamp);
+      });
+    } finally { this.correctionBusy = false; }
   }
   async complete(draft: WorkoutDraft): Promise<WorkoutSummary> {
     if (this.hasUnsafeCompletion(draft)) throw new Error('La seguridad del entrenamiento impide completarlo');
@@ -441,7 +453,7 @@ export class WorkoutService {
     let consecutiveSuccessfulExposures = 0;
     let consecutiveFailedExposures = 0;
     for (const row of history) {
-      const historical = (JSON.parse(row.actual_snapshot_json) as WorkoutDraft).exercises
+      const historical = (await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft)).actual.exercises
         .find((exercise) => exercise.exerciseId === actual.exerciseId);
       if (!historical) continue;
       const sets = historical.sets.filter((set) => set.disposition === 'COMPLETED');
