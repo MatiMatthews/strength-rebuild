@@ -168,12 +168,12 @@ describe('plan generation SQLite seam', () => {
     await expect(service.previewLegacyReplacement('legacy-week-1-day-2', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
     await expect(service.previewLegacyReplacement('legacy-week-1-day-3', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
     await expect(service.previewLegacyReplacement('legacy-week-1-day-1', 'real-id', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('referencia');
-    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
-    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
+    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: reference.unstarted })));
+    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: reference.unstarted })));
     expect(await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
     first.close();
     const reopened = open(path);
-    expect(await new ProgramService(reopened.db).listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
+    expect(await new ProgramService(reopened.db).listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: reference.unstarted })));
     expect(await Promise.all(tables.map((table) => reopened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
     reopened.close();
   });

@@ -1,3 +1,4 @@
+import { validateLegacyRepairBackup } from '../programs/legacy-repair';
 import type { RepositoryDatabase, SqlValue } from '../../data/repositories';
 import { decodeBackupFromTransfer } from '../../../plugins/backup-transfer-runtime';
 import { decryptBackupEnvelope, encryptBackupEnvelope } from './backup-envelope';
@@ -212,6 +213,8 @@ const relationships: Partial<Record<Table, readonly [string, Table][]>> = {
 };
 
 function validateSemantics(document: BackupDocument) {
+  try { validateLegacyRepairBackup(document.tables); }
+  catch { throw new BackupError('corrupt', 'El respaldo contiene una reparación de referencias inválida o contradictoria.'); }
   const identities = new Map<Table, Set<string>>();
   for (const table of tables) {
     const ids = new Set<string>();

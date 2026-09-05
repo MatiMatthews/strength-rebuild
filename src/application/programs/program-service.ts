@@ -144,10 +144,9 @@ export class ProgramService {
   async listInvalidSessionReferences(): Promise<readonly InvalidSessionReference[]> {
     const rows = await this.db.getAllAsync<{
       id: string; cycle_id: string; week_index: number; day_index: number;
-      snapshot_json: string; status: string; cycle_status: string; has_workout: number; cycle_has_workout: number;
+      snapshot_json: string; status: string; cycle_status: string; has_workout: number;
     }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status, c.status AS cycle_status,
-        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout,
-        EXISTS(SELECT 1 FROM workout_session recorded JOIN session_plan sp ON sp.id = recorded.session_plan_id JOIN training_week tw ON tw.id = sp.training_week_id WHERE tw.cycle_id = c.id) AS cycle_has_workout
+        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout
       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id
       JOIN cycle c ON c.id = w.cycle_id ORDER BY c.rowid, w.week_index, s.day_index`);
     const available = new Set(exerciseCatalog.filter((entry) => entry.pattern !== 'review').map((entry) => entry.id));
@@ -159,7 +158,7 @@ export class ProgramService {
       const invalidExerciseIds = [...new Set(exercises.filter((exercise) => !available.has(exercise.exerciseId)).map((exercise) => exercise.exerciseId))];
       return invalidExerciseIds.length ? [{ cycleId: row.cycle_id, sessionPlanId: row.id,
         weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
-        repairable: row.status === 'PLANNED' && row.cycle_status === 'READY' && !row.cycle_has_workout,
+        repairable: row.status === 'PLANNED' && ['READY', 'ACTIVE'].includes(row.cycle_status) && !row.has_workout,
         unstarted: row.status === 'PLANNED' && ['READY', 'ACTIVE'].includes(row.cycle_status) && !row.has_workout }] : [];
     });
   }
@@ -191,7 +190,7 @@ export class ProgramService {
 
   async prepareLegacyRepair(sessionPlanId: string, originalExerciseId: string, replacementId: string): Promise<LegacyRepairProposal> {
     const reference = (await this.listInvalidSessionReferences()).find(entry => entry.sessionPlanId === sessionPlanId);
-    if (!reference?.repairable) throw new Error('Solo se pueden reparar planes listos sin trabajo registrado. Se conserva el original.');
+    if (!reference?.repairable) throw new Error('Solo se pueden reparar sesiones sin iniciar en ciclos listos o activos. Se conserva el trabajo registrado.');
     if (!reference.invalidExerciseIds.includes(originalExerciseId)) throw new Error('La referencia ya no necesita reparación. Vuelve a abrir el plan.');
     const { constraints, settingsSource } = await this.repairConstraints();
     const row = await this.db.getFirstAsync<{ snapshot_json: string; kind: TodayData['cycleType'] }>(
@@ -222,11 +221,10 @@ export class ProgramService {
       (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
       SELECT ?, 1, ?, ?, 'legacy-prescription-repair', ?, ?, ?, 1, ?
       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id
-      WHERE s.id = ? AND s.status = 'PLANNED' AND s.snapshot_json = ? AND c.id = ? AND c.kind = ? AND c.status = 'READY'
+      WHERE s.id = ? AND s.status = 'PLANNED' AND s.snapshot_json = ? AND c.id = ? AND c.kind = ? AND c.status IN ('READY', 'ACTIVE')
         AND (SELECT value_json FROM app_setting WHERE key = 'training-settings') IS ?
         AND NOT EXISTS(SELECT 1 FROM active_restriction WHERE active = 1)
-        AND NOT EXISTS(SELECT 1 FROM workout_session recorded JOIN session_plan sp ON sp.id = recorded.session_plan_id
-          JOIN training_week tw ON tw.id = sp.training_week_id WHERE tw.cycle_id = c.id)`,
+        AND NOT EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id)`,
       id, timestamp, timestamp, LEGACY_REPAIR_POLICY, JSON.stringify(proposal), JSON.stringify(proposal.replacement), timestamp,
       proposal.sessionPlanId, proposal.source, proposal.cycleId, proposal.cycleKind, proposal.settingsSource);
     if (result.changes !== 1 && !await alreadyApplied()) throw new Error('La propuesta cambió. Revisa el plan y confirma una propuesta nueva.');
