@@ -50,14 +50,15 @@ describe("HistoryReferenceScreen", () => {
     } as unknown as HistoryWorkouts;
     const view = await render(<HistoryReferenceScreen workouts={workouts} />);
     await waitFor(() =>
-      expect(view.getAllByText("Ejercicio guardado").length).toBeGreaterThan(0),
+      expect(view.getAllByText("Ejercicio no disponible en el catálogo").length).toBeGreaterThan(0),
     );
     expect(view.getByText("Progreso")).toBeTruthy();
     expect(view.getByTestId("progress-metric-strip")).toBeTruthy();
     expect(view.getByTestId("progress-training-outcomes")).toBeTruthy();
     expect(view.getByText(/Tendencia e1RM.*valores registrados/i)).toBeTruthy();
     expect(view.getByText(/80.*× 8/)).toBeTruthy();
-    expect(view.queryByText(/press-banca/)).toBeNull();
+    expect(view.getByText(/No se puede sustituir este ejercicio porque tiene trabajo registrado/)).toBeTruthy();
+    expect(view.queryByText("Ejercicio guardado")).toBeNull();
     expect(view.getAllByText(/e1RM/).length).toBeGreaterThan(0);
     expect(view.getByText(/no es un diagnóstico/i)).toBeTruthy();
     expect(view.getByText("• Reducir carga")).toBeTruthy();
@@ -113,6 +114,8 @@ describe("HistoryReferenceScreen", () => {
     };
     const view = await render(<HistoryReferenceScreen workouts={workouts} />);
     expect((await view.findAllByText("Press banca")).length).toBeGreaterThan(0);
+    expect(view.queryByText(/No se puede sustituir este ejercicio/)).toBeNull();
+    expect(view.queryByText("Ejercicio no disponible en el catálogo")).toBeNull();
     expect(view.getByLabelText("Filtrar por ciclo")).toBeTruthy();
     expect(view.getByLabelText("Filtrar por ejercicio")).toBeTruthy();
     expect(view.getByText(/Prescrito:.*Real:/)).toBeTruthy();

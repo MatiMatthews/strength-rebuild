@@ -1,4 +1,4 @@
-import { exerciseCatalog } from '../../data/seeds/exercises';
+import { exerciseCatalog, type SeedExercise } from '../../data/seeds/exercises';
 import { catalogCompatibility, resolveCatalogRequirements } from './catalog-requirements';
 
 export const PRESCRIPTION_POLICY_VERSION = 'cycle-prescription-v1';
@@ -126,11 +126,47 @@ function qualityStops(type: CyclePrescriptionType): readonly string[] {
   return ['STOP_ON_TECHNIQUE_LOSS'];
 }
 
+/** Shared policy for a single catalog exercise, without inventing a reference load. */
+export function prescribeCatalogExercise(
+  request: Pick<CyclePrescriptionRequest, 'type' | 'profile'>, exercise: SeedExercise,
+  requirement: ExercisePrescription['requirement'], extras: Partial<ExercisePrescription> = {},
+): ExercisePrescription {
+  const target = profileByType[request.type];
+  const reference = !request.profile ? null
+    : exercise.id === 'barbell-bench-press' ? { label: 'bench press reference', value: request.profile.benchPressReference }
+    : exercise.id === 'smith-box-squat' ? { label: 'back squat reference', value: request.profile.backSquatReference } : null;
+  return deepFreeze({
+    exerciseId: exercise.id,
+    requirement,
+    target: {
+      sets: target.sets,
+      reps: { ...target.reps },
+      rir: { ...target.rir },
+      loadPercent: target.loadPercent ? { ...target.loadPercent } : null,
+    },
+    qualityStops: [...qualityStops(request.type)],
+    ...(() => {
+      const loadRange = target.loadPercent;
+      if (!reference || !request.profile || !loadRange) return { loadProvenance: 'policy-target' };
+      const loadPercent = (loadRange.min + loadRange.max) / 2;
+      const rawLoad = reference.value * loadPercent / 100;
+      const increment = request.profile.availableIncrement;
+      return {
+        calculatedLoad: Math.round(rawLoad / increment) * increment,
+        loadProvenance: `${reference.label} ${reference.value} ${request.profile.units}; training max reference; ${loadPercent}%; rounded to ${increment}`,
+      };
+    })(),
+    ...extras,
+    // Safety demand belongs to the catalog exercise, never its block role.
+    braceDemand: exercise.braceDemand,
+    lumbarDemand: exercise.lumbarDemand,
+  });
+}
+
 export function generatePrescription(request: CyclePrescriptionRequest): CyclePrescriptionSnapshot {
   validateRequest(request);
   const resolvedRequirements = resolveCatalogRequirements(request);
   const compatible = catalogCompatibility(request);
-  const target = profileByType[request.type];
   const weeks = Array.from({ length: request.weeks }, (_, weekIndex) => ({
     index: weekIndex + 1,
     sessions: (request.schedule ?? [1, 3, 5]).map((scheduledDay, dayIndex) => {
@@ -139,43 +175,11 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
         ? restrictionInput.length > 0
         : Boolean((restrictionInput as { readonly lumbar?: boolean; readonly abdominal?: boolean } | undefined)?.lumbar
           || (restrictionInput as { readonly lumbar?: boolean; readonly abdominal?: boolean } | undefined)?.abdominal);
-      const referenceFor = (exerciseId: string): { label: string; value: number } | null => {
-        if (!request.profile) return null;
-        if (exerciseId === 'barbell-bench-press') return { label: 'bench press reference', value: request.profile.benchPressReference };
-        if (exerciseId === 'smith-box-squat') return { label: 'back squat reference', value: request.profile.backSquatReference };
-        return null;
+      const makeExercise = ([exerciseId, requirement]: readonly [string, 'EXACT' | 'PATTERN' | 'CAPABILITY'], extras: Partial<ExercisePrescription> = {}): ExercisePrescription => {
+        const exercise = exerciseCatalog.find(({ id }) => id === exerciseId);
+        if (!exercise) throw new Error(`Unknown catalog exercise: ${exerciseId}`);
+        return prescribeCatalogExercise(request, exercise, requirement, extras);
       };
-      const makeExercise = ([exerciseId, requirement]: readonly [string, 'EXACT' | 'PATTERN' | 'CAPABILITY'], extras: Partial<ExercisePrescription> = {}): ExercisePrescription => ({
-        exerciseId,
-        requirement,
-        target: {
-          sets: target.sets,
-          reps: { ...target.reps },
-          rir: { ...target.rir },
-          loadPercent: target.loadPercent ? { ...target.loadPercent } : null,
-        },
-        qualityStops: [...qualityStops(request.type)],
-        ...(() => {
-          const loadRange = target.loadPercent;
-          const reference = loadRange ? referenceFor(exerciseId) : null;
-          if (!reference || !request.profile || !loadRange) return { loadProvenance: 'policy-target' };
-          const trainingMax = reference.value;
-          const loadPercent = (loadRange.min + loadRange.max) / 2;
-          const rawLoad = trainingMax * loadPercent / 100;
-          const increment = request.profile.availableIncrement;
-          return {
-            calculatedLoad: Math.round(rawLoad / increment) * increment,
-            loadProvenance: `${reference.label} ${reference.value} ${request.profile.units}; training max reference; ${loadPercent}%; rounded to ${increment}`,
-          };
-        })(),
-        ...extras,
-        // Safety demand belongs to the catalog exercise, never its block role.
-        ...(() => {
-          const exercise = exerciseCatalog.find(({ id }) => id === exerciseId);
-          if (!exercise) throw new Error(`Unknown catalog exercise: ${exerciseId}`);
-          return { braceDemand: exercise.braceDemand, lumbarDemand: exercise.lumbarDemand };
-        })(),
-      });
       const work = dayWork[dayIndex]!;
       const hasEquipment = (equipment: string) => !request.equipment || request.equipment.includes(equipment);
       const allowed = ([exerciseId]: readonly [string, 'EXACT' | 'PATTERN' | 'CAPABILITY']) => {

@@ -37,7 +37,7 @@ const exerciseNames = new Map(
   exerciseCatalog.map((exercise) => [exercise.id, exercise.name]),
 );
 const exerciseName = (exerciseId: string) =>
-  exerciseNames.get(exerciseId) ?? "Ejercicio guardado";
+  exerciseNames.get(exerciseId) ?? "Ejercicio no disponible en el catálogo";
 
 export function HistoryReferenceScreen({
   workouts,
@@ -280,6 +280,12 @@ export function HistoryReferenceScreen({
                   return (
                     <View key={exercise.exerciseId}>
                       <AppText>{exerciseName(exercise.exerciseId)}</AppText>
+                      {!exerciseNames.has(exercise.exerciseId) ? (
+                        <AppText color="muted">
+                          No se puede sustituir este ejercicio porque tiene trabajo registrado.
+                          Conservamos sus series y cargas sin atribuirlas a otro movimiento.
+                        </AppText>
+                      ) : null}
                       <AppText color="muted" variant="caption">
                         {completed.length} completada
                         {completed.length === 1 ? "" : "s"} · {omitted.length}{" "}

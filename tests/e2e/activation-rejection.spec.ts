@@ -8,6 +8,7 @@ for (const location of ['cycle', 'session'] as const) {
     await page.goto('/plan');
     await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
     await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
+    await expect(page.getByText('Hay ejercicios fuera del catálogo en tu plan guardado.', { exact: true })).toHaveCount(0);
     await readPersistence(page, info);
     await page.close();
 
@@ -52,6 +53,10 @@ for (const location of ['cycle', 'session'] as const) {
 
     const app = await context.newPage();
     await app.goto('/plan');
+    if (location === 'session') {
+      await expect(app.getByText('Hay ejercicios fuera del catálogo en tu plan guardado.', { exact: true })).toBeVisible();
+      await expect(app.getByText('Sesiones sin iniciar que necesitan revisión antes de entrenar: 1.', { exact: true })).toBeVisible();
+    }
     await app.getByRole('button', { name: 'Activar plan confirmado', exact: true }).click();
     await expect(app.getByText('El plan contiene un ejercicio fuera del catálogo. Revisa el plan antes de activarlo.', { exact: true }), 'Invalid persisted exercises must block activation').toBeVisible();
     await app.screenshot({ path: info.outputPath('activation-rejected.png'), fullPage: true });
@@ -60,6 +65,7 @@ for (const location of ['cycle', 'session'] as const) {
     const reopened = await context.newPage();
     await reopened.goto('/plan');
     await expect(reopened.getByRole('button', { name: 'Activar plan confirmado', exact: true })).toBeVisible();
+    if (location === 'session') await expect(reopened.getByText('Sesiones sin iniciar que necesitan revisión antes de entrenar: 1.', { exact: true })).toBeVisible();
     expect(await readPersistence(reopened, info)).toEqual(before);
   });
 }

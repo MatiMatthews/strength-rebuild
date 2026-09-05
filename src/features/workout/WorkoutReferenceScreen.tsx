@@ -456,7 +456,7 @@ export function WorkoutReferenceScreen({
             </>
           }
           current={exerciseIndex + 1}
-          exerciseName={exerciseName(exercise.exerciseId)}
+          exerciseName={guidance?.name ?? "Ejercicio no disponible en el catálogo"}
           nextName={
             draft.exercises[exerciseIndex + 1]
               ? exerciseName(draft.exercises[exerciseIndex + 1]!.exerciseId)
@@ -466,6 +466,17 @@ export function WorkoutReferenceScreen({
           onShowGuidance={() => setShowingGuidance(true)}
           total={draft.exercises.length}
         >
+          {!guidance ? (
+            <Panel>
+              <AppText accessibilityLiveRegion="polite" color="danger">
+                No se puede sustituir una referencia desconocida en una sesión iniciada.
+                Se conservan las series y cargas con su referencia original.
+              </AppText>
+              <AppText color="muted">
+                Este ejercicio no pertenece al catálogo local. No lo realices sin instrucciones.
+              </AppText>
+            </Panel>
+          ) : null}
           {showingGuidance ? (
             <Panel>
               <Tag>GUÍA LOCAL · SIN RED</Tag>
@@ -498,7 +509,7 @@ export function WorkoutReferenceScreen({
               </ActionButton>
             </Panel>
           ) : null}
-          {replacing ? (
+          {guidance && replacing ? (
             <ReplacementSheet
               exerciseId={exercise.exerciseId}
               requirement={exercise.requirement}
@@ -534,7 +545,7 @@ export function WorkoutReferenceScreen({
               }}
               settings={settings}
             />
-          ) : (
+          ) : guidance ? (
             <ActionButton
               accessibilityLabel="Reemplazar ejercicio"
               onPress={() => setReplacing(true)}
@@ -542,7 +553,7 @@ export function WorkoutReferenceScreen({
             >
               Reemplazar ejercicio
             </ActionButton>
-          )}
+          ) : null}
           {draft.safetyModifications.at(-1) ? (
             <View accessibilityLiveRegion="polite">
               <Panel>

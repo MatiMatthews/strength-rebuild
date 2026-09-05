@@ -13,5 +13,5 @@ export default function PlanRoute() {
     load: async () => resolveTrainingSettings((await repositories.settings.get<TrainingSettings>('training-settings'))?.value),
     save: (value: TrainingSettings) => repositories.settings.save({ id: 'training-settings', key: 'training-settings', value }),
   }), [repositories]);
-  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><PlanReferenceScreen backups={backups} onOpenBackup={() => router.push('/backup')} onOpenSettings={() => router.push('/settings')} programs={programs} reviews={weeklyReviews} settingsStore={settingsStore} /></FocusedScene>;
+  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><PlanReferenceScreen focused={isFocused} backups={backups} onOpenBackup={() => router.push('/backup')} onOpenSettings={() => router.push('/settings')} programs={programs} reviews={weeklyReviews} settingsStore={settingsStore} /></FocusedScene>;
 }

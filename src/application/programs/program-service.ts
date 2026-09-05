@@ -1,9 +1,11 @@
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import {
   generateCycleSequence,
+  prescribeCatalogExercise,
   type CyclePrescriptionRequest,
   type CyclePrescriptionSnapshot,
 } from '../../domain/prescriptions/generator';
+import { resolveCatalogRequirements } from '../../domain/prescriptions/catalog-requirements';
 import type { RepositoryDatabase } from '../../data/repositories';
 
 type CycleRow = { snapshot_json: string };
@@ -39,6 +41,15 @@ export interface TodayData {
   readonly dayIndex: number;
   readonly cycle: CyclePrescriptionSnapshot;
   readonly session: CyclePrescriptionSnapshot['weeks'][number]['sessions'][number];
+}
+
+export interface InvalidSessionReference {
+  readonly cycleId: string;
+  readonly sessionPlanId: string;
+  readonly weekIndex: number;
+  readonly dayIndex: number;
+  readonly invalidExerciseIds: readonly string[];
+  readonly unstarted: boolean;
 }
 
 export interface TodayContext {
@@ -107,7 +118,59 @@ export class ProgramService {
 
   async listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]> {
     const rows = await this.db.getAllAsync<CycleRow>('SELECT snapshot_json FROM cycle ORDER BY rowid');
-    return rows.map(({ snapshot_json }) => JSON.parse(snapshot_json) as CyclePrescriptionSnapshot);
+    const sessions = await this.db.getAllAsync<CycleRow & { cycle_id: string; week_index: number; day_index: number }>(
+      `SELECT w.cycle_id, w.week_index, s.day_index, s.snapshot_json
+       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id`,
+    );
+    return rows.map(({ snapshot_json }) => {
+      const cycle = JSON.parse(snapshot_json) as CyclePrescriptionSnapshot;
+      const storedSessions = sessions.filter((session) => session.cycle_id === cycle.id);
+      return { ...cycle, weeks: cycle.weeks.map((week) => ({
+        ...week,
+        sessions: week.sessions.map((session, index) => {
+          // The relational day is the session ordinal, not the scheduled weekday.
+          const stored = storedSessions.find((row) => row.week_index === week.index && row.day_index === index + 1);
+          return stored ? JSON.parse(stored.snapshot_json) as TodayData['session'] : session;
+        }),
+      })) };
+    });
+  }
+
+  /** Read-only inventory: any recorded workout protects a session, regardless of its status. */
+  async listInvalidSessionReferences(): Promise<readonly InvalidSessionReference[]> {
+    const rows = await this.db.getAllAsync<{
+      id: string; cycle_id: string; week_index: number; day_index: number;
+      snapshot_json: string; status: string; cycle_status: string; has_workout: number;
+    }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status, c.status AS cycle_status,
+        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout
+      FROM session_plan s JOIN training_week w ON w.id = s.training_week_id
+      JOIN cycle c ON c.id = w.cycle_id ORDER BY c.rowid, w.week_index, s.day_index`);
+    const available = new Set(exerciseCatalog.filter((entry) => entry.pattern !== 'review').map((entry) => entry.id));
+    return rows.flatMap((row) => {
+      const session = JSON.parse(row.snapshot_json) as TodayData['session'];
+      const exercises = [...session.exercises,
+        ...(session.blocks ?? []).filter((block) => block.role !== 'finish-review').flatMap((block) => block.exercises)];
+      const invalidExerciseIds = [...new Set(exercises.filter((exercise) => !available.has(exercise.exerciseId)).map((exercise) => exercise.exerciseId))];
+      return invalidExerciseIds.length ? [{ cycleId: row.cycle_id, sessionPlanId: row.id,
+        weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
+        unstarted: row.status === 'PLANNED' && ['READY', 'ACTIVE'].includes(row.cycle_status) && !row.has_workout }] : [];
+    });
+  }
+
+  /** An explicit choice is only a preview: never infer identity or transfer a legacy load. */
+  async previewLegacyReplacement(
+    sessionPlanId: string, invalidExerciseId: string, replacementId: string,
+    constraints: Pick<CyclePrescriptionRequest, 'equipment' | 'restrictions'>,
+  ): Promise<TodayData['session']['exercises'][number]> {
+    const reference = (await this.listInvalidSessionReferences()).find((entry) => entry.sessionPlanId === sessionPlanId);
+    if (!reference?.invalidExerciseIds.includes(invalidExerciseId)) throw new Error('La referencia ya no necesita reparación. Vuelve a abrir el plan.');
+    if (!reference.unstarted) throw new Error('La sesión está iniciada o cerrada. Se conserva el trabajo original.');
+    const row = await this.db.getFirstAsync<{ kind: CyclePrescriptionSnapshot['type'] }>('SELECT kind FROM cycle WHERE id = ?', reference.cycleId);
+    if (!row) throw new Error('El ciclo ya no está disponible.');
+    const [replacement] = resolveCatalogRequirements({ id: 'replacement-preview', type: row.kind, weeks: 1,
+      ...constraints, requirements: [{ kind: 'EXACT', value: replacementId }] });
+    return prescribeCatalogExercise({ type: row.kind }, replacement!, 'EXACT',
+      replacement!.tags.includes('power') ? { power: true, plyometric: replacement!.impact !== 'none' } : {});
   }
 
   async getActiveCycleId(): Promise<string | null> {

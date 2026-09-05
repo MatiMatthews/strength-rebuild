@@ -54,7 +54,7 @@ const cycleNames = {
 } as const;
 
 function exerciseLabel(id: string): string {
-  return names[id] ?? exerciseCatalog.find((exercise) => exercise.id === id)?.name ?? id;
+  return names[id] ?? exerciseCatalog.find((exercise) => exercise.id === id)?.name ?? "Ejercicio no disponible en el catálogo";
 }
 
 export function TodayReferenceScreen({
@@ -69,6 +69,10 @@ export function TodayReferenceScreen({
   const [gateOpen, setGateOpen] = useState(Boolean(initialReadinessInput));
   const [persistedReadinessDismissed, setPersistedReadinessDismissed] = useState(false);
   const data = "data" in state ? state.data : null;
+  const exercises = data?.session.blocks
+    ? data.session.blocks.filter((block) => block.role !== "finish-review").flatMap((block) => block.exercises)
+    : data?.session.exercises ?? [];
+  const unknownReferences = exercises.some((exercise) => !exerciseCatalog.some((entry) => entry.id === exercise.exerciseId && entry.pattern !== "review"));
   const emptyCopy =
     state.kind === "review-required"
       ? [
@@ -130,18 +134,18 @@ export function TodayReferenceScreen({
               Entrenamiento de {cycleNames[data.cycleType]}
             </Text>
             <Text style={[styles.body, { color: theme.textMuted }]}>
-              {data.session.exercises.length} ejercicios en el orden del
+              {exercises.length} ejercicios en el orden del
               entrenamiento
             </Text>
             <MetricStrip
               metrics={[
                 {
                   label: "EJERCICIOS",
-                  value: String(data.session.exercises.length),
+                  value: String(exercises.length),
                 },
                 {
                   label: "RIR OBJETIVO",
-                  value: `${data.session.exercises[0]?.target.rir.min ?? "—"}–${data.session.exercises[0]?.target.rir.max ?? "—"}`,
+                  value: `${exercises[0]?.target.rir.min ?? "—"}–${exercises[0]?.target.rir.max ?? "—"}`,
                 },
               ]}
             />
@@ -159,6 +163,13 @@ export function TodayReferenceScreen({
                   comenzar.
                 </Text>
               </View>
+            </View>
+          ) : null}
+          {unknownReferences ? (
+            <View accessibilityRole="alert" style={styles.restriction}>
+              <Text style={[styles.body, { color: theme.text }]}>
+                Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.
+              </Text>
             </View>
           ) : null}
           <View testID="readiness-action-band">
@@ -191,7 +202,7 @@ export function TodayReferenceScreen({
             >
               ORDEN DE TRABAJO
             </Text>
-            {data.session.exercises.map((exercise, index) => (
+            {exercises.map((exercise, index) => (
               <OrdinalRow
                 key={`${exercise.exerciseId}-${index}`}
                 ordinal={index + 1}

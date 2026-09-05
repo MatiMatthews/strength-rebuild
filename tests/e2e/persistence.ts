@@ -36,7 +36,7 @@ export async function readPersistence(page: Page, info: TestInfo) {
       cycles: db.prepare('SELECT id, kind, status FROM cycle ORDER BY id').all(),
       weeks: db.prepare('SELECT count(*) AS count FROM training_week').get(),
       sessions: db.prepare('SELECT count(*) AS count FROM session_plan').get(),
-      workouts: db.prepare('SELECT id, status, actual_snapshot_json FROM workout_session').all(),
+      workouts: db.prepare('SELECT id, session_plan_id, status, prescribed_snapshot_json, actual_snapshot_json FROM workout_session').all(),
       // Active workouts persist their canonical draft; set_log is materialized on finish.
       sets: db.prepare(`SELECT json_extract(s.value, '$.load') AS load,
         json_extract(s.value, '$.reps') AS reps, json_extract(s.value, '$.notes') AS notes,
