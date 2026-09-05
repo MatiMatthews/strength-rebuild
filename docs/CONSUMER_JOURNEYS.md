@@ -26,7 +26,7 @@ Screenshots, the synthetic SQLite copy and JSON readback remain under ignored
 `test-results/`. These are supporting evidence, not substitutes for assertions.
 
 `npm run test:journeys:mutations` runs the fault proofs described below, then
-requires the unmodified smoke to pass. Future accepted consumer behaviors
+requires all unmodified consumer journeys to pass. Future accepted consumer behaviors
 accumulate in the mandatory command; unresolved witnesses stay separate.
 
 ## Separate next-workout witness
@@ -53,6 +53,13 @@ saved load, reps, note and disposition; restored load, reps, note and completion
 and restored workout identity. The same unmodified smoke must fail at the
 specified consumer or independent persistence assertion, not at export/setup.
 The command finally reruns the unchanged baseline and writes a proof summary.
+Catalog fault proofs independently bypass equipment compatibility, ignore the
+impact restriction, and erase requirement field identity. Each must fail the
+matching production settings assertion. Run only this bounded group with
+`npm run test:journeys:mutations -- --catalog`; it still finishes with the full
+unmodified journey suite. Its summary is `catalog-proof-summary.json`, separate
+from the complete matrix summary. Existing persistence faults run only the smoke
+so a second journey failure cannot obscure their expected failure count.
 No fault switch is shipped in application code.
 
 The matrix below tracks product acceptance, not release approval. Browser visual

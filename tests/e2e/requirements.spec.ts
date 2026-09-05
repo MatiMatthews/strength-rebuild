@@ -19,7 +19,7 @@ test('requirement fields reject invalid drafts without changing saved settings o
     for (const invalid of ['missing-catalog-option', '']) {
       await field.fill(invalid);
       await save.click();
-      await expect(page.getByRole('alert').filter({ hasText: `Requisito ${index + 1} (` })).toBeVisible();
+      await expect(page.getByRole('alert').filter({ hasText: `Requisito ${index + 1} (` }), 'Invalid requirement must identify its field').toBeVisible();
       await expect(field).toHaveValue(invalid);
       expect(await readPersistence(page, info), 'Rejected drafts must not write any canonical rows').toEqual(before);
     }
@@ -28,12 +28,12 @@ test('requirement fields reject invalid drafts without changing saved settings o
   }
   await page.getByLabel('Alternar equipo Banco', { exact: true }).click();
   await save.click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Requisito 1 (' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Requisito 1 (' }), 'Missing equipment must reject the exact requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
   await page.getByLabel('Alternar equipo Banco', { exact: true }).click();
   await page.getByLabel('Restricciones activas', { exact: true }).fill('sin impacto');
   await save.click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Requisito 3 (' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Requisito 3 (' }), 'Impact restriction must reject the power requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
   await page.getByLabel('Restricciones activas', { exact: true }).fill('lumbar');
   await save.click();
