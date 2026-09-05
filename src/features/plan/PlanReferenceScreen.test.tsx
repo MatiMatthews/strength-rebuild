@@ -5,6 +5,8 @@ import * as appTheme from '@/design-system/use-app-theme';
 import { darkTheme, lightTheme } from '@/design-system/tokens';
 import { palette } from '@/design-system/v2.2/tokens';
 
+import { generateCycleSequence } from '@/domain/prescriptions/generator';
+
 import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 
 describe('PlanReferenceScreen', () => {
@@ -31,6 +33,42 @@ describe('PlanReferenceScreen', () => {
     expect(StyleSheet.flatten(view.getByText('ACTIVO').props.style).color).toBe(theme.textMuted);
     expect(StyleSheet.flatten(view.getByText('Transición obligatoria').props.style).color).toBe(palette.ink);
     expect(StyleSheet.flatten(transitionSummary.props.style).color).toBe(palette.steel);
+  });
+
+  it('shows catalog names and persisted targets for all blocks before activation', async () => {
+    const cycles = generateCycleSequence([{ id: 'preview', type: 'reentry', weeks: 1 }]);
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn(),
+      listCycleSnapshots: jest.fn().mockResolvedValue(cycles),
+      getActiveCycleId: jest.fn().mockResolvedValue(null),
+    };
+    const view = await render(<PlanReferenceScreen programs={programs} />);
+    await fireEvent.press(await view.findByRole('button', { name: /Semana 1 de Reentrada/ }));
+    expect(view.getAllByText('Activación general').length).toBe(3);
+    expect(view.getAllByText('Press banca').length).toBeGreaterThan(0);
+    expect(view.getAllByText('2 series · 5–10 repeticiones · RIR 4–5').length).toBeGreaterThan(0);
+    expect(view.getAllByText('Carga por definir').length).toBeGreaterThan(0);
+    expect(view.queryByText('session-review')).toBeNull();
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+  });
+
+  it('keeps stored load units and exposes missing catalog entries without inventing names', async () => {
+    const cycles = generateCycleSequence([{ id: 'preview', type: 'strength', weeks: 1,
+      profile: { units: 'lb', benchPressReference: 100, backSquatReference: 100, deadliftReference: 100, strictPullUpCapacity: 5, availableIncrement: 5 },
+    }]);
+    const stored = JSON.parse(JSON.stringify(cycles));
+    stored[0].weeks[0].sessions[0].blocks[0].exercises[0].exerciseId = 'missing-legacy-id';
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn(),
+      listCycleSnapshots: jest.fn().mockResolvedValue(stored),
+      getActiveCycleId: jest.fn().mockResolvedValue(null),
+    };
+    const view = await render(<PlanReferenceScreen programs={programs} />);
+    await fireEvent.press(await view.findByRole('button', { name: /Semana 1 de Fuerza/ }));
+    expect(view.getAllByText('80 lb').length).toBeGreaterThan(0);
+    expect(view.queryByText('80 kg')).toBeNull();
+    expect(view.getByText('Ejercicio no disponible: missing-legacy-id')).toBeTruthy();
+    expect(view.queryByText('Ejercicio guardado')).toBeNull();
   });
 
   it('previews an editable cycle with mandatory transition, expands sessions, and confirms activation', async () => {

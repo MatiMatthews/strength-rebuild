@@ -7,6 +7,11 @@ export async function startSyntheticWorkout(page: Page) {
   await expect(page.getByText('Todavía no hay ciclos', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
   await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
+  await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
+  await expect(page.getByText('Activación general', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('2 series · 5–10 repeticiones · RIR 4–5', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Carga por definir', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
   await page.getByRole('button', { name: 'Activar plan confirmado', exact: true }).click();
   await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
   await page.goto('/');

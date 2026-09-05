@@ -1,3 +1,5 @@
+import { exerciseCatalog } from '@/data/seeds/exercises';
+
 import { ChevronDown } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -22,7 +24,7 @@ export interface PlanPrograms {
 
 const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia', transition: 'Transición obligatoria', reentry: 'Reentrada' } as const;
 const dayNames: Record<string, string> = { monday: 'Lunes', wednesday: 'Miércoles', friday: 'Viernes' };
-const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', core: 'Zona media', plyometric: 'Potencia' };
+const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
 export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
@@ -109,10 +111,19 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
               <AppText style={[styles.weekTitle, { color: rowText }]}>{names[cycle.type]}</AppText>
               <AppText style={{ color: rowMuted }} variant="caption">{week.sessions.length} sesiones · toca para ver detalles</AppText>
               {open ? <View style={[styles.sessions, { borderColor: rowMuted }]}>
-                {week.sessions.map((session) => session.blocks ? <View key={session.dayIndex}>
-                  <AppText style={{ color: rowText }} variant="bodyStrong">{session.day ? (dayNames[session.day] ?? `Día ${session.dayIndex}`) : `Día ${session.dayIndex}`}</AppText>
-                  <AppText style={{ color: rowMuted }} variant="caption">{session.blocks.map((block) => `${roleNames[block.role] ?? 'Bloque de entrenamiento'} (${block.exercises.length})`).join(' · ')}</AppText>
-                </View> : <AppText key={session.dayIndex} style={{ color: rowText }}>Día {session.dayIndex} · {session.exercises.length} {session.exercises.length === 1 ? 'ejercicio' : 'ejercicios'}</AppText>)}
+                {week.sessions.map((session) => <View key={session.dayIndex}>
+                  <AppText style={{ color: rowText }} variant="bodyStrong">{session.day ? (dayNames[session.day] ?? `Día ${session.dayIndex}`) : `Día ${session.dayIndex} · ${session.exercises.length} ${session.exercises.length === 1 ? 'ejercicio' : 'ejercicios'}`}</AppText>
+                  {(session.blocks ?? [{ role: 'primary', exercises: session.exercises }]).filter((block) => block.role !== 'finish-review').map((block, blockIndex) => <View key={blockIndex}>
+                    <AppText style={{ color: rowMuted }} variant="caption">{roleNames[block.role] ?? 'Bloque de entrenamiento'}</AppText>
+                    {block.exercises.map((exercise, index) => <View key={`${exercise.exerciseId}-${index}`}>
+                      <AppText style={{ color: rowText }} variant="bodyStrong">{exerciseCatalog.find(({ id }) => id === exercise.exerciseId)?.name ?? `Ejercicio no disponible: ${exercise.exerciseId}`}</AppText>
+                      {exercise.target ? <>
+                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.target.sets} series · {exercise.target.reps.min}–{exercise.target.reps.max} repeticiones · RIR {exercise.target.rir.min}–{exercise.target.rir.max}</AppText>
+                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadProvenance?.match(/\b(kg|lb);/)?.[1] ?? '(unidad no registrada)'}` : 'Carga por definir'}</AppText>
+                      </> : <AppText style={{ color: rowMuted }} variant="caption">Prescripción no disponible</AppText>}
+                    </View>)}
+                  </View>)}
+                </View>)}
               </View> : null}
             </View>
             <ChevronDown color={rowMuted} size={20} />
