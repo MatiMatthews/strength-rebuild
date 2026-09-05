@@ -39,6 +39,8 @@ describe('full persisted cycle lifecycle', () => {
     await workouts.complete(draft);
     const historyBefore = await workouts.listHistory();
 
+    await db.runAsync("UPDATE session_plan SET status = 'COMPLETED' WHERE training_week_id IN (SELECT id FROM training_week WHERE cycle_id = 'hypertrophy' AND week_index = 1)");
+    await db.runAsync("UPDATE training_week SET status = 'REVIEW' WHERE cycle_id = 'hypertrophy' AND week_index = 1");
     const reviews = new WeeklyReviewService(db, () => '2026-08-18T02:30:00.000Z', () => 'review-hypertrophy');
     await reviews.decide((await reviews.propose({ cycleId: 'hypertrophy', weekIndex: 1, nextWeekIndex: 2, outcome: 'successful' })).id, true);
     await programs.completeCycleAndActivateNext('hypertrophy', 'hypertrophy--to--strength');
