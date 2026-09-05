@@ -3,8 +3,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { readPersistence } from './persistence';
 
-for (const closedCycle of [false, true]) {
-test(`closed=${closedCycle}: Today identifies an unknown persisted exercise without rewriting the plan on reopen`, async ({ page, context }, info) => {
+for (const state of ['unstarted', 'closed-cycle', 'completed-session', 'active-workout']) {
+const closedCycle = state === 'closed-cycle';
+const protectedWork = state !== 'unstarted';
+test(`${state}: Today identifies an unknown persisted exercise without rewriting the plan on reopen`, async ({ page, context }, info) => {
   await page.goto('/plan');
   await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
   await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
@@ -24,6 +26,14 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
   snapshot.exercises[0].exerciseId = 'missing-legacy';
   db.prepare('UPDATE session_plan SET snapshot_json = ? WHERE id = ?').run(JSON.stringify(snapshot), row.id!);
   if (closedCycle) db.prepare("UPDATE cycle SET status = 'COMPLETED' WHERE status = 'ACTIVE'").run();
+  if (state === 'completed-session') db.prepare("UPDATE session_plan SET status = 'COMPLETED' WHERE id = ?").run(row.id!);
+  if (state === 'active-workout' || state === 'completed-session') {
+    db.prepare(`INSERT INTO workout_session (id, schema_version, created_at, updated_at, session_plan_id, status, prescribed_snapshot_json, actual_snapshot_json)
+      VALUES ('synthetic-protected', 1, '2026-01-01', '2026-01-01', ?, ?, ?, ?)`).run(
+      row.id!, state === 'active-workout' ? 'IN_PROGRESS' : 'COMPLETED', JSON.stringify(snapshot),
+      JSON.stringify({ exercises: [{ exerciseId: 'missing-legacy', sets: [{ load: '60', reps: '8', notes: 'Keep original work', completed: true }] }], activeExerciseIndex: 0 }),
+    );
+  }
   db.close();
     const fixture = await context.newPage();
     await fixture.route('**/__synthetic_fixture', route => route.fulfill({ contentType: 'text/html', body: '<title>Synthetic fixture</title>' }));
@@ -51,7 +61,7 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
 
   for (const attempt of [1, 2]) {
     const app = await context.newPage();
-    if (!closedCycle) {
+    if (state === 'unstarted') {
       await app.goto('/');
       await expect(app.getByText('Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.', { exact: true })).toBeVisible();
       await expect(app.getByText('Ejercicio no disponible en el catálogo', { exact: true })).toHaveCount(1);
@@ -60,7 +70,7 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
       await app.screenshot({ path: info.outputPath(`today-unknown-${attempt}.png`), fullPage: true });
     }
     await app.goto('/plan');
-    if (closedCycle) {
+    if (protectedWork) {
       await expect(app.getByText('Sesiones iniciadas o cerradas con referencias originales: 1. No se sustituye el trabajo registrado.', { exact: true })).toBeVisible();
       await expect(app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true })).toHaveCount(0);
       expect(await readPersistence(app, info)).toEqual(before);
