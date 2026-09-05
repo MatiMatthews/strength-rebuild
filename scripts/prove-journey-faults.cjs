@@ -1,17 +1,70 @@
 const { spawnSync } = require('node:child_process');
-const { mkdirSync, writeFileSync } = require('node:fs');
+const { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const output = path.resolve('test-results', 'fault-proofs');
+const root = process.cwd();
+const output = path.join(root, 'test-results', 'fault-proofs');
 mkdirSync(output, { recursive: true });
-for (const [fault, expected] of [['blocked-route', 'plan-screen'], ['memory-only', 'Revisar preparación para entrenar']]) {
-  const run = spawnSync(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--output', path.join(output, fault)], {
-    env: { ...process.env, JOURNEY_FAULT: fault }, encoding: 'utf8', timeout: 240_000,
-  });
-  const log = `${run.stdout || ''}\n${run.stderr || ''}`;
-  writeFileSync(path.join(output, `${fault}.log`), log);
-  if (run.status !== 1 || !log.includes(expected) || !log.includes('1 failed')) {
-    process.stderr.write(log);
-    throw new Error(`${fault}: expected a consumer assertion failure, got ${run.status}`);
-  }
-  console.log(`${fault}: detected by mandatory smoke (expected exit 1)`);
+const service = 'src/application/workouts/workout-service.ts';
+const faults = [
+  { name: 'blocked-route', expected: 'plan-screen', transport: true },
+  { name: 'memory-only', expected: 'Revisar preparación para entrenar', transport: true },
+  ...['load', 'reps', 'notes', 'disposition'].map(field => ({
+    name: `stored-${field}`, expected: 'Canonical completed-set values must persist',
+    anchor: '  async saveDraftSnapshot(draft: WorkoutDraft): Promise<void> {',
+    code: `\n    draft = { ...draft, exercises: draft.exercises.map(e => ({ ...e, sets: e.sets.map(s => ({ ...s, ${field}: ${JSON.stringify(field === 'disposition' ? 'PENDING' : 'corrupted')} })) })) };`,
+  })),
+  ...[
+    ['load', 'Carga de la serie 1', "load: '99'"],
+    ['reps', 'Repeticiones de la serie 1', "reps: '99'"],
+    ['notes', 'Notas de la serie 1', "notes: 'corrupted'"],
+    ['completion', 'COMPLETADA', "completed: false, disposition: 'PENDING'"],
+    ['identity', 'after.workouts.map', null],
+  ].map(([name, expected, fields]) => ({
+    name: `reopened-${name}`, expected,
+    anchor: '      const draft = JSON.parse(active.actual_snapshot_json) as WorkoutDraft;',
+    code: fields
+      ? `\n      for (const exercise of draft.exercises) for (const set of exercise.sets) Object.assign(set, { ${fields} });`
+      : `\n      await this.db.runAsync('UPDATE workout_session SET id = ? WHERE id = ?', draft.id + '-corrupted', draft.id);\n      draft.id += '-corrupted';`,
+  })),
+];
+const results = [];
+for (const fault of faults) {
+  // Every mutant owns a disposable source/export copy. Never patch the working
+  // tree, baseline export, real browser profile or pre-existing SQLite database.
+  const copy = mkdtempSync(path.join(os.tmpdir(), 'strength-journey-mutant-'));
+  try {
+    const excluded = new Set(['.git', 'node_modules', 'dist', 'test-results', 'playwright-report', '.expo', 'android', 'ios']);
+    cpSync(root, copy, { recursive: true, filter: file => {
+      const relative = path.relative(root, file);
+      return !relative || !excluded.has(relative.split(path.sep)[0]);
+    } });
+    symlinkSync(path.join(root, 'node_modules'), path.join(copy, 'node_modules'), 'dir');
+    if (!fault.transport) {
+      const filename = path.join(copy, service);
+      const source = readFileSync(filename, 'utf8');
+      if (source.split(fault.anchor).length !== 2) throw new Error(`${fault.name}: mutation anchor is not unique`);
+      writeFileSync(filename, source.replace(fault.anchor, fault.anchor + fault.code));
+    }
+    const run = spawnSync(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--output', path.join(output, fault.name)], {
+      cwd: copy, env: { ...process.env, JOURNEY_WITNESS: '', JOURNEY_FAULT: fault.transport ? fault.name : '' },
+      encoding: 'utf8', timeout: 240_000,
+    });
+    const log = `${run.stdout || ''}\n${run.stderr || ''}`;
+    writeFileSync(path.join(output, `${fault.name}.log`), log);
+    if (run.status !== 1 || !log.includes(fault.expected) || !log.includes('1 failed')) {
+      process.stderr.write(log);
+      throw new Error(`${fault.name}: expected consumer assertion failure (${fault.expected}), got ${run.status}`);
+    }
+    results.push({ fault: fault.name, assertion: fault.expected, exit: run.status });
+    console.log(`${fault.name}: detected at ${fault.expected} (exit 1)`);
+  } finally { rmSync(copy, { recursive: true, force: true }); }
 }
+// Certify the unchanged source/export after all disposable mutations.
+const baseline = spawnSync(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--output', path.join(output, 'restored-baseline')], {
+  cwd: root, env: { ...process.env, JOURNEY_FAULT: '', JOURNEY_WITNESS: '' }, encoding: 'utf8', timeout: 240_000,
+});
+writeFileSync(path.join(output, 'restored-baseline.log'), `${baseline.stdout || ''}\n${baseline.stderr || ''}`);
+if (baseline.status !== 0) throw new Error(`Unmodified baseline failed: ${baseline.status}`);
+writeFileSync(path.join(output, 'proof-summary.json'), JSON.stringify({ mutations: results, restoredBaselineExit: baseline.status }, null, 2));
+console.log('Unmodified baseline passes after all mutations.');
