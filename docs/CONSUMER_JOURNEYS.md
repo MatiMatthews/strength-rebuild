@@ -50,6 +50,11 @@ stored session for the three resolved requirement kinds and valid rep/set target
 Activation and a new browser page must preserve the exact template and session
 prescriptions. This browser coverage does not replace native or legacy-repair acceptance.
 
+The snapshot recovery journey deliberately delays one synchronous worker preparation
+and verifies that the subsequent edit wins, completion reaches SQLite, and reload
+restores it. After the web bridge's bounded-spin timeout, snapshot writes stay on
+one asynchronous queue. Other write errors and completed-work immutability still fail.
+
 ## Mutation coverage
 
 The proof command now makes one disposable source/export copy per fault and

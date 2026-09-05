@@ -197,13 +197,28 @@ export class WorkoutService {
   }
 
   private snapshotQueue: Promise<void> = Promise.resolve();
+  private asyncSnapshots = false;
+
+  private immediateSnapshot(id: string, snapshot: string): boolean {
+    if (this.asyncSnapshots) return false;
+    try { return this.repository.updateActualSnapshotSync(id, snapshot); }
+    catch (error) {
+      // The web worker uses a bounded spin loop. Once it times out, keep all
+      // subsequent edits on one FIFO queue so an older async save cannot win.
+      if (error instanceof Error && error.message === 'Sync operation timeout') {
+        this.asyncSnapshots = true;
+        return false;
+      }
+      throw error;
+    }
+  }
 
   async saveDraftSnapshot(draft: WorkoutDraft): Promise<void> {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
     // Use the same immediate checkpoint as text/background saves when available.
     // This prevents a delayed autosave from overwriting a newer confirmed edit.
     const snapshot = JSON.stringify(draft);
-    if (this.repository.updateActualSnapshotSync(draft.id, snapshot)) return;
+    if (this.immediateSnapshot(draft.id, snapshot)) return;
     const pending = this.snapshotQueue.then(() => this.repository.updateActualSnapshot(draft.id, snapshot));
     this.snapshotQueue = pending.catch(() => undefined);
     await pending;
@@ -211,7 +226,7 @@ export class WorkoutService {
 
   saveDraftSnapshotBeforeProcessStop(draft: WorkoutDraft): boolean {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
-    return this.repository.updateActualSnapshotSync(draft.id, JSON.stringify(draft));
+    return this.immediateSnapshot(draft.id, JSON.stringify(draft));
   }
   recordSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number, patch: Partial<WorkoutSetDraft>): WorkoutDraft {
     const exercise = draft.exercises[exerciseIndex];

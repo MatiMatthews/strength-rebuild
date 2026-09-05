@@ -170,7 +170,10 @@ export function WorkoutReferenceScreen({
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active" || !latestDraftRef.current) return;
       try {
-        workouts.saveDraftSnapshotBeforeProcessStop(latestDraftRef.current);
+        if (!workouts.saveDraftSnapshotBeforeProcessStop(latestDraftRef.current)) {
+          void workouts.saveDraftSnapshot(latestDraftRef.current)
+            .catch(() => setError("No se pudieron guardar los cambios"));
+        }
       } catch {
         setError("No se pudieron guardar los cambios");
       }
