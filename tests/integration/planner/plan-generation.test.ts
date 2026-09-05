@@ -23,6 +23,24 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('preserves default squat safety demand in cycle and session snapshots after activation and reopen', async () => {
+    const path = `${process.env.TMPDIR ?? '/tmp'}/strength-demands-${process.pid}-${Date.now()}.sqlite`;
+    const first = open(path);
+    await migrateDatabase(first.db);
+    const service = new ProgramService(first.db);
+    await service.createPlan([{ id: 'demands', type: 'strength', weeks: 1 }]);
+    await service.activateCycle('demands');
+    first.close();
+    const reopened = open(path);
+    const cycle = await reopened.db.getFirstAsync<{ snapshot_json: string }>("SELECT snapshot_json FROM cycle WHERE id = 'demands'");
+    const session = await reopened.db.getFirstAsync<{ snapshot_json: string }>("SELECT snapshot_json FROM session_plan WHERE id = 'demands-week-1-day-2'");
+    for (const workout of [JSON.parse(cycle!.snapshot_json).weeks[0].sessions[1], JSON.parse(session!.snapshot_json)]) {
+      const squat = workout.exercises.find((exercise: { exerciseId: string }) => exercise.exerciseId === 'smith-box-squat');
+      expect(squat).toMatchObject({ braceDemand: 'high', lumbarDemand: 'moderate' });
+    }
+    reopened.close();
+  });
+
   it.each(['missing', 'completed', 'cycle-catalog', 'session-catalog'])(
     'rejects %s activation without changing persisted cycles, including after reopen', async (fault) => {
       const path = `${process.env.TMPDIR ?? '/tmp'}/strength-activation-${fault}-${process.pid}-${Date.now()}.sqlite`;

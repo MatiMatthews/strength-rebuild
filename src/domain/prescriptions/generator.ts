@@ -1,3 +1,4 @@
+import { exerciseCatalog } from '../../data/seeds/exercises';
 import { resolveCatalogRequirements } from './catalog-requirements';
 
 export const PRESCRIPTION_POLICY_VERSION = 'cycle-prescription-v1';
@@ -161,6 +162,12 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
           };
         })(),
         ...extras,
+        // Safety demand belongs to the catalog exercise, never its block role.
+        ...(() => {
+          const exercise = exerciseCatalog.find(({ id }) => id === exerciseId);
+          if (!exercise) throw new Error(`Unknown catalog exercise: ${exerciseId}`);
+          return { braceDemand: exercise.braceDemand, lumbarDemand: exercise.lumbarDemand };
+        })(),
       });
       const work = dayWork[dayIndex]!;
       const hasEquipment = (equipment: string) => !request.equipment || request.equipment.includes(equipment);

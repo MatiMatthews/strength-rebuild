@@ -27,6 +27,17 @@ describe('catalog requirements consumed by prescription generation', () => {
     expect(generated.lumbarDemand).toBe(catalog.lumbarDemand);
   });
 
+  it.each(['strength', 'power', 'reentry'] as const)('retains catalog safety demands for every default %s exercise', (type) => {
+    const snapshot = generatePrescription({ ...request, type });
+    for (const session of snapshot.weeks[0]!.sessions) {
+      for (const generated of session.exercises) {
+        const catalog = exerciseCatalog.find(({ id }) => id === generated.exerciseId)!;
+        expect({ id: generated.exerciseId, brace: generated.braceDemand, lumbar: generated.lumbarDemand })
+          .toEqual({ id: catalog.id, brace: catalog.braceDemand, lumbar: catalog.lumbarDemand });
+      }
+    }
+  });
+
   it('filters pattern candidates by equipment, including explicit saved aliases', () => {
     expect(requestedExercise('PATTERN', 'horizontal-push', ['dumbbells', 'incline-bench']).exerciseId).toBe('incline-dumbbell-press');
     expect(requestedExercise('EXACT', 'barbell-bench-press', ['Barra', 'Banco']).exerciseId).toBe('barbell-bench-press');
