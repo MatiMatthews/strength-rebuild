@@ -1,3 +1,5 @@
+import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
+import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
 import { exerciseCatalog } from '@/data/seeds/exercises';
 
 import { ChevronDown } from 'lucide-react-native';
@@ -71,7 +73,7 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
           const unchanged = JSON.stringify(nextCycles) === JSON.stringify(cycles);
           setCycles(nextCycles);
           setFeedback({ message: unchanged ? 'La vista previa no cambió.' : 'Vista previa creada y guardada en este dispositivo.', tone: 'success' });
-    } catch { setFeedback({ message: 'No se pudo crear la vista previa. Revisa la configuración.', tone: 'danger' }); } finally { setBusy(false); }
+    } catch (error) { setFeedback({ message: error instanceof InsufficientWorkoutError || error instanceof CatalogRequirementError ? error.message : 'No se pudo crear la vista previa. Revisa la configuración.', tone: 'danger' }); } finally { setBusy(false); }
   };
   const activate = async () => {
     const first = cycles.find(({ type }) => type !== 'transition');

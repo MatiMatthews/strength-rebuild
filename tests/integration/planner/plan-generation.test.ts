@@ -23,12 +23,33 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('rejects warmup-only workouts without any partial writes or active-plan changes after reopen', async () => {
+    const path = `${process.env.TMPDIR ?? '/tmp'}/strength-empty-work-${process.pid}-${Date.now()}.sqlite`;
+    const first = open(path);
+    await migrateDatabase(first.db);
+    const service = new ProgramService(first.db);
+    await service.createPlan([{ id: 'current', type: 'strength', weeks: 1 }]);
+    await service.activateCycle('current');
+    const tables = ['program_template', 'cycle', 'session_plan'];
+    const before = await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)));
+    await expect(service.createPlan([
+      { id: 'valid-first', type: 'strength', weeks: 1 },
+      { id: 'empty-work', type: 'strength', weeks: 1, equipment: ['bodyweight'], restrictions: ['abdominal'] },
+    ])).rejects.toThrow('día 1');
+    expect(await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+    first.close();
+    const reopened = open(path);
+    expect(await Promise.all(tables.map((table) => reopened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+    expect(await new ProgramService(reopened.db).getActiveCycleId()).toBe('current');
+    reopened.close();
+  });
+
   it('persists only available low-brace defaults through activation and reopen', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-compatible-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);
     await migrateDatabase(first.db);
     await new ProgramService(first.db).createPlan([{ id: 'compatible', type: 'strength', weeks: 1,
-      equipment: ['bodyweight'], restrictions: ['abdominal'] }]);
+      equipment: ['bodyweight'], restrictions: ['abdominal'], requirements: [{ kind: 'EXACT', value: 'bird-dog' }] }]);
     await new ProgramService(first.db).activateCycle('compatible');
     first.close();
     const reopened = open(path);
@@ -36,9 +57,9 @@ describe('plan generation SQLite seam', () => {
     expect(cycle!.status).toBe('ACTIVE');
     const sessions = await reopened.db.getAllAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan ORDER BY id');
     const expected = [
-      ['bodyweight-activation', 'thoracic-mobility'],
-      ['bodyweight-activation', 'hip-mobility'],
-      ['bodyweight-activation', 'shoulder-mobility', 'bird-dog'],
+      ['bodyweight-activation', 'thoracic-mobility', 'bird-dog'],
+      ['bodyweight-activation', 'hip-mobility', 'bird-dog'],
+      ['bodyweight-activation', 'shoulder-mobility', 'bird-dog', 'bird-dog'],
     ];
     for (const workouts of [JSON.parse(cycle!.snapshot_json).weeks[0].sessions, sessions.map((row) => JSON.parse(row.snapshot_json))]) {
       expect(workouts.map((workout: { exercises: { exerciseId: string }[] }) => workout.exercises.map((exercise) => exercise.exerciseId))).toEqual(expected);

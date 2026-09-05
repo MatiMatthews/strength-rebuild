@@ -5,12 +5,32 @@ import * as appTheme from '@/design-system/use-app-theme';
 import { darkTheme, lightTheme } from '@/design-system/tokens';
 import { palette } from '@/design-system/v2.2/tokens';
 
-import { generateCycleSequence } from '@/domain/prescriptions/generator';
+import { generateCycleSequence, InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 
 import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 
 describe('PlanReferenceScreen', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('explains insufficient work and retains preview inputs and the saved plan', async () => {
+    const cycles = generateCycleSequence([{ id: 'existing', type: 'strength', weeks: 1 }]);
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn().mockRejectedValue(new InsufficientWorkoutError(3)),
+      listCycleSnapshots: jest.fn().mockResolvedValue(cycles),
+      getActiveCycleId: jest.fn().mockResolvedValue(null),
+    };
+    const onOpenSettings = jest.fn();
+    const view = await render(<PlanReferenceScreen programs={programs} onOpenSettings={onOpenSettings} />);
+    await view.findByRole('button', { name: /Semana 1 de Fuerza/ });
+    await fireEvent.changeText(view.getByLabelText('Semanas de hipertrofia'), '3');
+    await fireEvent.press(view.getByRole('button', { name: 'Crear vista previa del ciclo' }));
+    await view.findByText(new InsufficientWorkoutError(3).message);
+    expect(view.getByLabelText('Semanas de hipertrofia').props.value).toBe('3');
+    expect(view.getByRole('button', { name: /Semana 1 de Fuerza/ })).toBeTruthy();
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+    await fireEvent.press(view.getByRole('button', { name: 'Abrir configuración del plan' }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
 
   it.each([lightTheme, darkTheme])('keeps program and transition rows readable when dark=$dark', async (theme) => {
     jest.spyOn(appTheme, 'useAppTheme').mockReturnValue(theme);

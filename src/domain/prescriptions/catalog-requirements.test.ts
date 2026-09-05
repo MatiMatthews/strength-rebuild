@@ -20,6 +20,11 @@ describe('catalog requirements consumed by prescription generation', () => {
     expect(requestedExercise(kind, value)).toEqual(requestedExercise(kind, value));
   });
 
+  it.each(['bodyweight-activation', 'thoracic-mobility'])('does not count requested %s as training work', (value) => {
+    expect(() => generatePrescription({ ...request, equipment: ['bodyweight'], restrictions: ['abdominal'],
+      requirements: [{ kind: 'EXACT', value }] })).toThrow('día 1');
+  });
+
   it('uses catalog demand instead of downgrading requested exercise safety', () => {
     const generated = requestedExercise('EXACT', 'smith-box-squat');
     const catalog = exerciseCatalog.find(({ id }) => id === generated.exerciseId)!;
@@ -51,7 +56,7 @@ describe('catalog requirements consumed by prescription generation', () => {
   });
 
   it('omits unavailable default equipment while retaining available work and review markers', () => {
-    const snapshot = generatePrescription({ ...request, equipment: ['bodyweight'] });
+    const snapshot = generatePrescription({ ...request, equipment: ['bodyweight'], requirements: [{ kind: 'EXACT', value: 'bird-dog' }] });
     for (const session of snapshot.weeks[0]!.sessions) {
       expect(session.exercises.length).toBeGreaterThan(0);
       for (const generated of session.exercises) {

@@ -76,6 +76,12 @@ export interface CyclePrescriptionSnapshot {
   readonly weeks: readonly WeekPrescription[];
 }
 
+export class InsufficientWorkoutError extends Error {
+  constructor(readonly day: number) {
+    super(`El día ${day} no tiene ejercicios de trabajo compatibles. Revisa el equipo y añade un requisito compatible en Configuración del plan; conserva tus restricciones de seguridad.`);
+  }
+}
+
 const profileByType: Readonly<Record<CyclePrescriptionType, ExerciseTarget>> = {
   hypertrophy: { sets: 3, reps: { min: 6, max: 15 }, rir: { min: 2, max: 3 }, loadPercent: null },
   strength: { sets: 3, reps: { min: 3, max: 6 }, rir: { min: 2, max: 3 }, loadPercent: { min: 75, max: 85 } },
@@ -204,6 +210,13 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
         exercises: block.role === 'finish-review' ? block.exercises : block.exercises.filter((exercise) =>
           compatible(exerciseCatalog.find(({ id }) => id === exercise.exerciseId)!)),
       }));
+      // Activation, mobility and the review marker alone are not a workout.
+      if (!blocks.some((block) => ['primary', 'accessory', 'core'].includes(block.role) && block.exercises.some((exercise) => {
+        const pattern = exerciseCatalog.find(({ id }) => id === exercise.exerciseId)!.pattern;
+        return !['activation', 'mobility', 'review'].includes(pattern);
+      }))) {
+        throw new InsufficientWorkoutError(scheduledDay);
+      }
       return {
         dayIndex: scheduledDay,
         day: weekDays[scheduledDay - 1],
