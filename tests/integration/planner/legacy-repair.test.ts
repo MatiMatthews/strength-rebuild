@@ -66,8 +66,8 @@ it('rolls back a failed audit write and rejects a changed confirmed target', asy
     const proposal = await f.programs.prepareLegacyRepair(id, 'unknown', 'barbell-bench-press');
     const before = await read(f.db);
     await expect(f.programs.applyLegacyRepair({ ...proposal, replacement: { ...proposal.replacement, calculatedLoad: 999 } })).rejects.toThrow('cambió');
-    const failure = new ProgramService({ ...f.db, runAsync: async (...args) => { await f.db.runAsync(...args); throw new Error('injected storage failure'); } });
-    await expect(failure.applyLegacyRepair(proposal)).rejects.toThrow('injected storage failure');
+    await f.db.runAsync("CREATE TRIGGER reject_repair AFTER INSERT ON decision_log BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END");
+    await expect(f.programs.applyLegacyRepair(proposal)).rejects.toThrow('injected storage failure');
     expect(await read(f.db)).toBe(before);
   } finally { f.close(); }
 });
@@ -113,4 +113,27 @@ it('cold reopens, keeps backups portable and idempotent, and starts the actual r
       expect(JSON.parse(await read(reopened.db)).tables.session_plan).toEqual(before.session_plan);
     } finally { reopened.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it.each(['status', 'settings', 'work', 'source', 'kind', 'restriction'])('atomically rejects arriving %s without rolling back that independent write', async fault => {
+  const f = await fixture();
+  try {
+    const proposal = await f.programs.prepareLegacyRepair(id, 'unknown', 'barbell-bench-press');
+    let arrived = '';
+    const interleaved = new ProgramService({ ...f.db, runAsync: async (sql, ...params) => {
+      if (sql.includes('INTO decision_log')) {
+        if (fault === 'status') await f.db.runAsync("UPDATE session_plan SET status = 'COMPLETED' WHERE id = ?", id);
+        if (fault === 'settings') await new SettingRepository(f.db).save({ id: 'training-settings', key: 'training-settings', value: { ...defaultSettings, equipment: ['bodyweight'] } });
+        if (fault === 'work') await f.db.runAsync("INSERT INTO workout_session (id,schema_version,created_at,updated_at,session_plan_id,status,prescribed_snapshot_json) VALUES ('arriving',1,'now','now','legacy-week-1-day-2','IN_PROGRESS','{}')");
+        if (fault === 'source') await f.db.runAsync("UPDATE session_plan SET snapshot_json = json_set(snapshot_json, '$.exercises[0].calculatedLoad', 888) WHERE id = ?", id);
+        if (fault === 'kind') await f.db.runAsync("UPDATE cycle SET kind = 'power' WHERE id = 'legacy'");
+        if (fault === 'restriction') await f.db.runAsync("INSERT INTO active_restriction (id,schema_version,created_at,updated_at,kind,details_json) VALUES ('arriving',1,'now','now','pain','{}')");
+        arrived = await read(f.db);
+      }
+      return f.db.runAsync(sql, ...params);
+    } });
+    await expect(interleaved.applyLegacyRepair(proposal)).rejects.toThrow();
+    expect(await f.db.getAllAsync('SELECT * FROM decision_log')).toHaveLength(0);
+    expect(await read(f.db)).toBe(arrived);
+  } finally { f.close(); }
 });

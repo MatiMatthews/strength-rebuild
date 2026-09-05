@@ -10,6 +10,8 @@ export interface LegacyRepairProposal {
   readonly replacement: Session['exercises'][number];
   readonly source: string;
   readonly constraints: string;
+  readonly settingsSource: string | null;
+  readonly cycleKind: TodayData['cycleType'];
 }
 
 /** Originals remain in their snapshot columns; the accepted decision is the portable audit. */
