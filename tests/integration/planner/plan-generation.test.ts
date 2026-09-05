@@ -23,6 +23,38 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it.each(['missing', 'completed', 'cycle-catalog', 'session-catalog'])(
+    'rejects %s activation without changing persisted cycles, including after reopen', async (fault) => {
+      const path = `${process.env.TMPDIR ?? '/tmp'}/strength-activation-${fault}-${process.pid}-${Date.now()}.sqlite`;
+      const first = open(path);
+      await migrateDatabase(first.db);
+      const service = new ProgramService(first.db);
+      await service.createPlan([{ id: 'current', type: 'strength', weeks: 1 }, { id: 'candidate', type: 'strength', weeks: 1 }]);
+      await service.activateCycle('current');
+      if (fault === 'completed') await first.db.runAsync("UPDATE cycle SET status = 'COMPLETED' WHERE id = 'candidate'");
+      if (fault === 'cycle-catalog') {
+        const snapshots = await service.listCycleSnapshots();
+        const candidate = JSON.parse(JSON.stringify(snapshots[1]));
+        candidate.weeks[0].sessions[0].blocks[0].exercises[0].exerciseId = 'invented-exercise';
+        await first.db.runAsync("UPDATE cycle SET snapshot_json = ? WHERE id = 'candidate'", JSON.stringify(candidate));
+      }
+      if (fault === 'session-catalog') {
+        const row = await first.db.getFirstAsync<{ snapshot_json: string }>("SELECT snapshot_json FROM session_plan WHERE id = 'candidate-week-1-day-1'");
+        const session = JSON.parse(row!.snapshot_json);
+        session.exercises[0].exerciseId = 'invented-exercise';
+        await first.db.runAsync("UPDATE session_plan SET snapshot_json = ? WHERE id = 'candidate-week-1-day-1'", JSON.stringify(session));
+      }
+      const before = await first.db.getAllAsync('SELECT * FROM cycle');
+      await expect(service.activateCycle(fault === 'missing' ? 'missing' : 'candidate')).rejects.toThrow();
+      expect(await first.db.getAllAsync('SELECT * FROM cycle')).toEqual(before);
+      first.close();
+      const reopened = open(path);
+      expect(await reopened.db.getAllAsync('SELECT * FROM cycle')).toEqual(before);
+      expect(await new ProgramService(reopened.db).getActiveCycleId()).toBe('current');
+      reopened.close();
+    },
+  );
+
   it('persists resolved requirement IDs and rejects an unsatisfied request without changing the active plan', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-catalog-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);
