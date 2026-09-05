@@ -7,13 +7,15 @@ import { radii, spacing , borders, palette as brandPalette, spacing as brandSpac
 import { useAppTheme } from '@/design-system/use-app-theme';
 import { defaultSettings, validateSettings, type SettingsStore, type TrainingSettings } from './settings';
 
+import { exerciseCatalog } from '../../data/seeds/exercises';
+
 const equipment = ['Barra', 'Mancuernas', 'Banco', 'Bandas'];
 const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 export function SettingsPanel({ scenario, store }: { scenario?: 'settings-validation' | undefined; store: SettingsStore }) {
   const theme = useAppTheme();
   const [settings, setSettings] = useState<TrainingSettings>(defaultSettings);
-  const [feedback, setFeedback] = useState<{ message: string; danger?: boolean } | null>(null);
+  const [feedback, setFeedback] = useState<{ message: string; danger?: boolean; requirementIndex?: number } | null>(null);
   useEffect(() => { store.load().then((saved) => {
     if (scenario === 'settings-validation') {
       setSettings({ ...saved, increments: [] });
@@ -26,7 +28,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
   });
   const save = async () => {
     const result = validateSettings(settings);
-    if (!result.success) return setFeedback({ danger: true, message: result.message });
+    if (!result.success) return setFeedback({ danger: true, message: result.message, ...(result.requirementIndex !== undefined ? { requirementIndex: result.requirementIndex } : {}) });
     await store.save(settings); setFeedback({ message: 'Configuración guardada en este dispositivo.' });
   };
   const choice = (label: string, selected: boolean, onPress: () => void, accessibilityLabel: string) => <ChoiceControl accessibilityLabel={accessibilityLabel} label={label} onPress={onPress} selected={selected} />;
@@ -37,9 +39,22 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
     <TextField accessibilityLabel="Incrementos disponibles" label="Incrementos disponibles" onChangeText={(text) => setSettings({ ...settings, increments: text.split(',').map(Number).filter(Number.isFinite) })} value={settings.increments.join(', ')} />
     <AppText variant="label">Equipo disponible</AppText><View style={styles.wrap}>{equipment.map((item) => <View key={item}>{choice(item, settings.equipment.includes(item), () => toggle('equipment', item), `Alternar equipo ${item}`)}</View>)}</View>
     <AppText variant="label">Días de entrenamiento</AppText><View style={styles.wrap}>{days.map((day, index) => <View key={day}>{choice(day, settings.schedule.includes(index + 1), () => toggle('schedule', index + 1), `Alternar día ${day}`)}</View>)}</View>
-    <AppText variant="label">Requisitos del plan</AppText>{settings.requirements.map((requirement, index) => <TextField key={requirement.kind} accessibilityLabel={`Requisito ${requirement.kind}`} label={requirement.kind} onChangeText={(value) => setSettings({ ...settings, requirements: settings.requirements.map((item, itemIndex) => itemIndex === index ? { ...item, value } : item) })} value={requirement.value} />)}
+    <AppText variant="label">Requisitos del plan</AppText>{settings.requirements.map((requirement, index) => {
+      const options = exerciseCatalog.filter((item) => item.pattern !== 'review');
+      const choices = requirement.kind === 'EXACT' ? options.map((item) => ({ value: item.id, label: item.name }))
+        : [...new Set(options.flatMap((item) => requirement.kind === 'PATTERN' ? [item.pattern] : item.tags))].map((value) => ({ value, label: value }));
+      const updateRequirement = (value: string) => {
+        setSettings({ ...settings, requirements: settings.requirements.map((item, itemIndex) => itemIndex === index ? { ...item, value } : item) });
+        setFeedback(null);
+      };
+      return <View key={index} style={{ gap: spacing.sm }}>
+        <TextField accessibilityLabel={`Requisito ${requirement.kind}`} label={requirement.kind} onChangeText={updateRequirement} value={requirement.value} />
+        {feedback?.requirementIndex === index ? <FeedbackBanner message={feedback.message} tone="danger" /> : null}
+        <View style={styles.wrap}>{choices.map((option) => <View key={option.value}>{choice(option.label, requirement.value === option.value, () => updateRequirement(option.value), `Elegir ${option.label} para requisito ${index + 1}`)}</View>)}</View>
+      </View>;
+    })}
     <TextField accessibilityLabel="Restricciones activas" label="Restricciones activas (separadas por coma)" onChangeText={(text) => setSettings({ ...settings, restrictions: text.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="Ej. sin impacto" value={settings.restrictions.join(', ')} />
-    {feedback ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
+    {feedback && feedback.requirementIndex === undefined ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
     <ActionButton accessibilityLabel="Guardar configuración local" onPress={save}>Guardar configuración</ActionButton>
     </OperationalSection>
   </View>;

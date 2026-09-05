@@ -1,3 +1,6 @@
+import { exerciseCatalog } from '../../data/seeds/exercises';
+import { catalogCompatibility, resolveCatalogRequirements } from './catalog-requirements';
+
 export const PRESCRIPTION_POLICY_VERSION = 'cycle-prescription-v1';
 
 export type CyclePrescriptionType = 'hypertrophy' | 'strength' | 'power' | 'transition' | 'reentry';
@@ -73,6 +76,12 @@ export interface CyclePrescriptionSnapshot {
   readonly weeks: readonly WeekPrescription[];
 }
 
+export class InsufficientWorkoutError extends Error {
+  constructor(readonly day: number) {
+    super(`El día ${day} no tiene ejercicios de trabajo compatibles. Revisa el equipo y añade un requisito compatible en Configuración del plan; conserva tus restricciones de seguridad.`);
+  }
+}
+
 const profileByType: Readonly<Record<CyclePrescriptionType, ExerciseTarget>> = {
   hypertrophy: { sets: 3, reps: { min: 6, max: 15 }, rir: { min: 2, max: 3 }, loadPercent: null },
   strength: { sets: 3, reps: { min: 3, max: 6 }, rir: { min: 2, max: 3 }, loadPercent: { min: 75, max: 85 } },
@@ -119,6 +128,8 @@ function qualityStops(type: CyclePrescriptionType): readonly string[] {
 
 export function generatePrescription(request: CyclePrescriptionRequest): CyclePrescriptionSnapshot {
   validateRequest(request);
+  const resolvedRequirements = resolveCatalogRequirements(request);
+  const compatible = catalogCompatibility(request);
   const target = profileByType[request.type];
   const weeks = Array.from({ length: request.weeks }, (_, weekIndex) => ({
     index: weekIndex + 1,
@@ -158,6 +169,12 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
           };
         })(),
         ...extras,
+        // Safety demand belongs to the catalog exercise, never its block role.
+        ...(() => {
+          const exercise = exerciseCatalog.find(({ id }) => id === exerciseId);
+          if (!exercise) throw new Error(`Unknown catalog exercise: ${exerciseId}`);
+          return { braceDemand: exercise.braceDemand, lumbarDemand: exercise.lumbarDemand };
+        })(),
       });
       const work = dayWork[dayIndex]!;
       const hasEquipment = (equipment: string) => !request.equipment || request.equipment.includes(equipment);
@@ -165,13 +182,18 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
         if (exerciseId === 'smith-box-squat') return hasEquipment('smith-machine') && hasEquipment('box') && !restricted;
         return true;
       };
-      const requirements = (request.requirements ?? []).map(({ kind, value }) =>
-        makeExercise([value, kind], { braceDemand: 'low', lumbarDemand: 'low' }));
+      const requirements = (request.requirements ?? []).map(({ kind }, index) => {
+        const exercise = resolvedRequirements[index]!;
+        return makeExercise([exercise.id, kind], {
+          braceDemand: exercise.braceDemand, lumbarDemand: exercise.lumbarDemand,
+          ...(exercise.tags.includes('power') ? { power: true, plyometric: exercise.impact !== 'none' } : {}),
+        });
+      });
       const primaryExercises: ExercisePrescription[] = [
         ...(allowed(work.primary) ? [makeExercise(work.primary, { braceDemand: 'moderate', lumbarDemand: 'moderate' })] : []),
         ...requirements.filter(({ requirement }) => requirement === 'EXACT'),
       ];
-      const blocks: NonNullable<SessionPrescription['blocks']> = [
+      const proposedBlocks: NonNullable<SessionPrescription['blocks']> = [
         { role: 'activation', exercises: [makeExercise(['bodyweight-activation', 'CAPABILITY'], { braceDemand: 'low', lumbarDemand: 'low' })] },
         { role: 'mobility', exercises: [makeExercise([dayIndex === 0 ? 'thoracic-mobility' : dayIndex === 1 ? 'hip-mobility' : 'shoulder-mobility', 'CAPABILITY'], { braceDemand: 'low', lumbarDemand: 'low' })] },
         ...(!restricted && request.type === 'power' ? [{ role: 'power-primer' as const, exercises: [makeExercise(['low-volume-jump', 'CAPABILITY'], { plyometric: true, power: true, braceDemand: 'moderate', lumbarDemand: 'low' })] }] : []),
@@ -181,6 +203,20 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
           ...requirements.filter(({ requirement }) => requirement !== 'EXACT')] },
         { role: 'finish-review', exercises: [makeExercise(['session-review', 'CAPABILITY'], { braceDemand: 'low', lumbarDemand: 'low' })] },
       ];
+      // Optional defaults may be omitted, just as unavailable Smith work was.
+      // Explicit requirements have already failed closed during resolution.
+      const blocks = proposedBlocks.map((block) => ({
+        ...block,
+        exercises: block.role === 'finish-review' ? block.exercises : block.exercises.filter((exercise) =>
+          compatible(exerciseCatalog.find(({ id }) => id === exercise.exerciseId)!)),
+      }));
+      // Activation, mobility and the review marker alone are not a workout.
+      if (!blocks.some((block) => ['primary', 'accessory', 'core'].includes(block.role) && block.exercises.some((exercise) => {
+        const pattern = exerciseCatalog.find(({ id }) => id === exercise.exerciseId)!.pattern;
+        return !['activation', 'mobility', 'review'].includes(pattern);
+      }))) {
+        throw new InsufficientWorkoutError(scheduledDay);
+      }
       return {
         dayIndex: scheduledDay,
         day: weekDays[scheduledDay - 1],

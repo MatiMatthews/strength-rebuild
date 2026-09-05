@@ -1,3 +1,5 @@
+import { CatalogRequirementError, resolveCatalogRequirements } from '../../domain/prescriptions/catalog-requirements';
+
 export type UnitSystem = 'kg' | 'lb';
 export type RequirementKind = 'EXACT' | 'PATTERN' | 'CAPABILITY';
 
@@ -26,9 +28,9 @@ export const defaultSettings: TrainingSettings = {
   equipment: ['Barra', 'Mancuernas', 'Banco'],
   schedule: [1, 3, 5],
   requirements: [
-    { kind: 'EXACT', value: 'Sentadilla con barra' },
-    { kind: 'PATTERN', value: 'Empuje horizontal' },
-    { kind: 'CAPABILITY', value: 'Potencia de tren inferior' },
+    { kind: 'EXACT', value: 'barbell-bench-press' },
+    { kind: 'PATTERN', value: 'horizontal-push' },
+    { kind: 'CAPABILITY', value: 'power' },
   ],
   restrictions: [],
   profile: { benchPressReference: 60, deadliftReference: 100, backSquatReference: 80, strictPullUpCapacity: 5 },
@@ -39,12 +41,18 @@ export function resolveTrainingSettings(persisted: TrainingSettings | null | und
   return persisted ?? defaultSettings;
 }
 
-export function validateSettings(settings: TrainingSettings): { success: true } | { success: false; message: string } {
+export function validateSettings(settings: TrainingSettings): { success: true } | { success: false; message: string; requirementIndex?: number } {
   if (!settings.increments.length || settings.increments.some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Añade al menos un incremento positivo.' };
   if (!settings.equipment.length) return { success: false, message: 'Selecciona al menos un equipo disponible.' };
   if (!settings.schedule.length || settings.schedule.some((day) => day < 1 || day > 7)) return { success: false, message: 'Selecciona al menos un día válido.' };
-  if (!settings.requirements.length || settings.requirements.some(({ value }) => !value.trim())) return { success: false, message: 'Completa al menos un requisito.' };
+  if (!settings.requirements.length) return { success: false, message: 'Completa al menos un requisito.' };
   if (settings.profile && Object.values(settings.profile).some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Las referencias de fuerza deben ser positivas.' };
+  try {
+    resolveCatalogRequirements({ id: 'settings-validation', type: 'strength', weeks: 1, equipment: settings.equipment, requirements: settings.requirements, restrictions: settings.restrictions });
+  } catch (error) {
+    if (error instanceof CatalogRequirementError) return { success: false, message: error.message, requirementIndex: error.requirementIndex };
+    throw error;
+  }
   return { success: true };
 }
 

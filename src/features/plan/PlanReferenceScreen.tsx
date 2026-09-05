@@ -1,3 +1,7 @@
+import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
+import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
+import { exerciseCatalog } from '@/data/seeds/exercises';
+
 import { ChevronDown } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -17,12 +21,11 @@ export interface PlanPrograms {
   listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]>;
   getActiveCycleId(): Promise<string | null>;
   activateCycle(id: string): Promise<void>;
-  rememberCycleActivation?(id: string): void;
 }
 
 const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia', transition: 'Transición obligatoria', reentry: 'Reentrada' } as const;
 const dayNames: Record<string, string> = { monday: 'Lunes', wednesday: 'Miércoles', friday: 'Viernes' };
-const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', core: 'Zona media', plyometric: 'Potencia' };
+const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
 export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
@@ -69,13 +72,19 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
           const unchanged = JSON.stringify(nextCycles) === JSON.stringify(cycles);
           setCycles(nextCycles);
           setFeedback({ message: unchanged ? 'La vista previa no cambió.' : 'Vista previa creada y guardada en este dispositivo.', tone: 'success' });
-    } catch { setFeedback({ message: 'No se pudo crear la vista previa. Revisa la configuración.', tone: 'danger' }); } finally { setBusy(false); }
+    } catch (error) { setFeedback({ message: error instanceof InsufficientWorkoutError || error instanceof CatalogRequirementError ? error.message : 'No se pudo crear la vista previa. Revisa la configuración.', tone: 'danger' }); } finally { setBusy(false); }
   };
   const activate = async () => {
+    if (busy) return;
     const first = cycles.find(({ type }) => type !== 'transition');
     if (!first) return;
-    await programs.activateCycle(first.id);
-    setActive(first.id);
+    setBusy(true);
+    try {
+      await programs.activateCycle(first.id);
+      setActive(first.id);
+    } catch (error) {
+      setFeedback({ message: error instanceof Error ? error.message : 'No se pudo activar el plan. Revisa la vista previa e inténtalo de nuevo.', tone: 'danger' });
+    } finally { setBusy(false); }
   };
 
   return <Screen testID="plan-screen">
@@ -87,7 +96,7 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
       <ActionButton accessibilityLabel="Crear vista previa del ciclo" onPress={create}>{busy ? 'Creando…' : 'Crear vista previa'}</ActionButton>
       {feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     </Panel>}
-    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" onPress={activate} onPressIn={() => { const first = cycles.find(({ type }) => type !== 'transition'); if (first) programs.rememberCycleActivation?.(first.id); }}>Activar plan</ActionButton></Panel> : null}
+    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy} onPress={activate}>Activar plan</ActionButton></Panel> : null}
     <OperationalSection label="HERRAMIENTAS DEL PLAN"><AppText color="muted">Edita tu perfil y equipo, o administra una copia local, en pantallas separadas.</AppText>{onOpenSettings ? <ActionButton accessibilityLabel="Abrir configuración del plan" onPress={onOpenSettings} tone="secondary">Configuración del plan</ActionButton> : null}{onOpenBackup ? <ActionButton accessibilityLabel="Abrir respaldo y recuperación" onPress={onOpenBackup} tone="secondary">Respaldo y recuperación</ActionButton> : null}</OperationalSection>
     <View style={[styles.programRail, { borderColor: theme.border }]} testID="program-rail">
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>
@@ -109,10 +118,19 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
               <AppText style={[styles.weekTitle, { color: rowText }]}>{names[cycle.type]}</AppText>
               <AppText style={{ color: rowMuted }} variant="caption">{week.sessions.length} sesiones · toca para ver detalles</AppText>
               {open ? <View style={[styles.sessions, { borderColor: rowMuted }]}>
-                {week.sessions.map((session) => session.blocks ? <View key={session.dayIndex}>
-                  <AppText style={{ color: rowText }} variant="bodyStrong">{session.day ? (dayNames[session.day] ?? `Día ${session.dayIndex}`) : `Día ${session.dayIndex}`}</AppText>
-                  <AppText style={{ color: rowMuted }} variant="caption">{session.blocks.map((block) => `${roleNames[block.role] ?? 'Bloque de entrenamiento'} (${block.exercises.length})`).join(' · ')}</AppText>
-                </View> : <AppText key={session.dayIndex} style={{ color: rowText }}>Día {session.dayIndex} · {session.exercises.length} {session.exercises.length === 1 ? 'ejercicio' : 'ejercicios'}</AppText>)}
+                {week.sessions.map((session) => <View key={session.dayIndex}>
+                  <AppText style={{ color: rowText }} variant="bodyStrong">{session.day ? (dayNames[session.day] ?? `Día ${session.dayIndex}`) : `Día ${session.dayIndex} · ${session.exercises.length} ${session.exercises.length === 1 ? 'ejercicio' : 'ejercicios'}`}</AppText>
+                  {(session.blocks ?? [{ role: 'primary', exercises: session.exercises }]).filter((block) => block.role !== 'finish-review').map((block, blockIndex) => <View key={blockIndex}>
+                    <AppText style={{ color: rowMuted }} variant="caption">{roleNames[block.role] ?? 'Bloque de entrenamiento'}</AppText>
+                    {block.exercises.map((exercise, index) => <View key={`${exercise.exerciseId}-${index}`}>
+                      <AppText style={{ color: rowText }} variant="bodyStrong">{exerciseCatalog.find(({ id }) => id === exercise.exerciseId)?.name ?? `Ejercicio no disponible: ${exercise.exerciseId}`}</AppText>
+                      {exercise.target ? <>
+                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.target.sets} series · {exercise.target.reps.min}–{exercise.target.reps.max} repeticiones · RIR {exercise.target.rir.min}–{exercise.target.rir.max}</AppText>
+                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadProvenance?.match(/\b(kg|lb);/)?.[1] ?? '(unidad no registrada)'}` : 'Carga por definir'}</AppText>
+                      </> : <AppText style={{ color: rowMuted }} variant="caption">Prescripción no disponible</AppText>}
+                    </View>)}
+                  </View>)}
+                </View>)}
               </View> : null}
             </View>
             <ChevronDown color={rowMuted} size={20} />

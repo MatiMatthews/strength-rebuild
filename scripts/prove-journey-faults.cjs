@@ -28,8 +28,57 @@ const faults = [
       : `\n      await this.db.runAsync('UPDATE workout_session SET id = ? WHERE id = ?', draft.id + '-corrupted', draft.id);\n      draft.id += '-corrupted';`,
   })),
 ];
+const catalogService = 'src/domain/prescriptions/catalog-requirements.ts';
+const catalogFaults = [
+  {
+    name: 'catalog-equipment-bypass', expected: 'Missing equipment must reject the exact requirement',
+    anchor: "return (!equipment || exercise.equipment.every((item) => equipment.has(item)))",
+    replacement: 'return true',
+  },
+  {
+    name: 'catalog-impact-bypass', expected: 'Impact restriction must reject the power requirement',
+    anchor: "if (restriction === 'sin impacto') return exercise.impact === 'none';",
+    replacement: "if (restriction === 'sin impacto') return true;",
+  },
+  {
+    name: 'catalog-field-identity', expected: 'Invalid requirement must identify its field',
+    anchor: 'Requisito ${requirementIndex + 1} (${kind}: ${value}):',
+    replacement: 'Requisito inválido:',
+  },
+].map(fault => ({ ...fault, file: catalogService, test: 'requirements.spec.ts' }));
+const activationFaults = [
+  {
+    name: 'catalog-resolution-order', file: catalogService, grep: 'multiple compatible candidates',
+    anchor: 'left.id.localeCompare(right.id)', replacement: 'right.id.localeCompare(left.id)',
+    expected: 'Chosen requirement kinds must resolve to deterministic catalog IDs',
+  },
+  {
+    name: 'activation-session-prescription', grep: 'original choices', file: 'src/application/programs/program-service.ts',
+    anchor: '      await this.validateActivation(id);',
+    code: `
+      const plans = await this.db.getAllAsync<{ id: string; snapshot_json: string }>(
+        'SELECT s.id, s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,
+      );
+      for (const plan of plans) {
+        const snapshot = JSON.parse(plan.snapshot_json);
+        snapshot.exercises[0].target.reps.min = 99;
+        await this.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(snapshot), plan.id);
+      }`,
+    expected: 'Activation must preserve previewed session prescriptions',
+  },
+].map(fault => ({ ...fault, test: 'requirements.spec.ts' }));
+const rejectionFaults = ['cycle', 'session'].map(location => ({
+  name: `activation-${location}-validation-bypass`,
+  file: 'src/application/programs/program-service.ts', test: 'activation-rejection.spec.ts',
+  grep: `unknown ${location} exercise`,
+  anchor: '      await this.validateActivation(id);', replacement: '      // Deliberately bypass validation in this disposable mutant.',
+  expected: 'Invalid persisted exercises must block activation',
+}));
+const group = process.argv[2];
+if (group && !['--catalog', '--activation', '--rejection'].includes(group)) throw new Error(`Unknown fault group: ${group}`);
+const selectedFaults = group === '--catalog' ? catalogFaults : group === '--activation' ? activationFaults : group === '--rejection' ? rejectionFaults : [...faults, ...catalogFaults, ...activationFaults, ...rejectionFaults];
 const results = [];
-for (const fault of faults) {
+for (const fault of selectedFaults) {
   // Every mutant owns a disposable source/export copy. Never patch the working
   // tree, baseline export, real browser profile or pre-existing SQLite database.
   const copy = mkdtempSync(path.join(os.tmpdir(), 'strength-journey-mutant-'));
@@ -41,12 +90,12 @@ for (const fault of faults) {
     } });
     symlinkSync(path.join(root, 'node_modules'), path.join(copy, 'node_modules'), 'dir');
     if (!fault.transport) {
-      const filename = path.join(copy, service);
+      const filename = path.join(copy, fault.file || service);
       const source = readFileSync(filename, 'utf8');
       if (source.split(fault.anchor).length !== 2) throw new Error(`${fault.name}: mutation anchor is not unique`);
-      writeFileSync(filename, source.replace(fault.anchor, fault.anchor + fault.code));
+      writeFileSync(filename, source.replace(fault.anchor, fault.replacement ?? (fault.anchor + fault.code)));
     }
-    const run = spawnSync(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--output', path.join(output, fault.name)], {
+    const run = spawnSync(process.execPath, [require.resolve('@playwright/test/cli'), 'test', fault.test || 'smoke.spec.ts', ...(fault.grep ? ['--grep', fault.grep] : []), '--output', path.join(output, fault.name)], {
       cwd: copy, env: { ...process.env, JOURNEY_WITNESS: '', JOURNEY_FAULT: fault.transport ? fault.name : '' },
       encoding: 'utf8', timeout: 240_000,
     });
@@ -66,5 +115,5 @@ const baseline = spawnSync(process.execPath, [require.resolve('@playwright/test/
 });
 writeFileSync(path.join(output, 'restored-baseline.log'), `${baseline.stdout || ''}\n${baseline.stderr || ''}`);
 if (baseline.status !== 0) throw new Error(`Unmodified baseline failed: ${baseline.status}`);
-writeFileSync(path.join(output, 'proof-summary.json'), JSON.stringify({ mutations: results, restoredBaselineExit: baseline.status }, null, 2));
+writeFileSync(path.join(output, group ? `${group.slice(2)}-proof-summary.json` : 'proof-summary.json'), JSON.stringify({ mutations: results, restoredBaselineExit: baseline.status }, null, 2));
 console.log('Unmodified baseline passes after all mutations.');

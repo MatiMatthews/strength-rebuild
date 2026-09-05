@@ -1,3 +1,4 @@
+import { exerciseCatalog } from '../../data/seeds/exercises';
 import {
   generateCycleSequence,
   type CyclePrescriptionRequest,
@@ -9,7 +10,6 @@ type CycleRow = { snapshot_json: string };
 type IdRow = { id: string };
 type CountRow = { count: number };
 type CycleKindRow = { kind: CyclePrescriptionSnapshot['type']; status: string; rowid: number };
-const activationIntentKey = 'strength-rebuild.confirmed-cycle';
 
 function requestFingerprint(requests: readonly CyclePrescriptionRequest[]): string {
   const input = JSON.stringify(requests);
@@ -115,17 +115,38 @@ export class ProgramService {
   }
 
   async activateCycle(id: string): Promise<void> {
-    this.rememberCycleActivation(id);
-    await this.db.runAsync(
-      "UPDATE cycle SET status = CASE WHEN id = ? AND status = 'READY' THEN 'ACTIVE' WHEN status = 'ACTIVE' THEN 'READY' ELSE status END, updated_at = ? WHERE status = 'ACTIVE' OR (id = ? AND status = 'READY')",
-      id, this.now(), id,
-    );
-    if (await this.getActiveCycleId() !== id) throw new Error(`Cycle ${id} is not ready for activation`);
-    globalThis.localStorage?.removeItem(activationIntentKey);
+    await this.db.withTransactionAsync(async () => {
+      await this.validateActivation(id);
+      await this.db.runAsync(
+        "UPDATE cycle SET status = CASE WHEN id = ? THEN 'ACTIVE' ELSE 'READY' END, updated_at = ? WHERE status = 'ACTIVE' OR (id = ? AND status = 'READY')",
+        id, this.now(), id,
+      );
+      if (await this.getActiveCycleId() !== id) throw new Error(`Cycle ${id} is not ready for activation`);
+    });
   }
 
-  rememberCycleActivation(id: string): void {
-    globalThis.localStorage?.setItem(activationIntentKey, id);
+  private async validateActivation(id: string): Promise<void> {
+    const row = await this.db.getFirstAsync<CycleRow & { status: string }>(
+      'SELECT snapshot_json, status FROM cycle WHERE id = ?', id,
+    );
+    if (!row || !['READY', 'ACTIVE'].includes(row.status)) throw new Error(`Cycle ${id} is not ready for activation`);
+    const validateSession = (session: TodayData['session']) => {
+      const workout = [
+        ...session.exercises,
+        ...(session.blocks ?? []).filter((block) => block.role !== 'finish-review').flatMap((block) => block.exercises),
+      ];
+      for (const exercise of workout) {
+        if (!exerciseCatalog.some((entry) => entry.id === exercise.exerciseId && entry.pattern !== 'review')) {
+          throw new Error('El plan contiene un ejercicio fuera del catálogo. Revisa el plan antes de activarlo.');
+        }
+      }
+    };
+    const cycle = JSON.parse(row.snapshot_json) as CyclePrescriptionSnapshot;
+    cycle.weeks.forEach((week) => week.sessions.forEach(validateSession));
+    const sessions = await this.db.getAllAsync<CycleRow>(
+      'SELECT s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,
+    );
+    sessions.forEach((session) => validateSession(JSON.parse(session.snapshot_json) as TodayData['session']));
   }
 
   /** Applies an explicitly confirmed lifecycle step; time alone never calls this seam. */
@@ -144,6 +165,7 @@ export class ProgramService {
     }
     const timestamp = this.now();
     await this.db.withTransactionAsync(async () => {
+      await this.validateActivation(nextId);
       const unfinished = await this.db.getFirstAsync<CountRow>(
         "SELECT COUNT(*) AS count FROM training_week WHERE cycle_id = ? AND status <> 'COMPLETED'",
         currentId,
@@ -189,16 +211,7 @@ export class ProgramService {
        ORDER BY c.rowid, w.week_index, s.day_index
        LIMIT 1`,
     );
-    if (!row) {
-      const confirmedCycle = globalThis.localStorage?.getItem(activationIntentKey);
-      if (!confirmedCycle) return null;
-      await this.db.runAsync(
-        "UPDATE cycle SET status = CASE WHEN id = ? AND status = 'READY' THEN 'ACTIVE' WHEN status = 'ACTIVE' THEN 'READY' ELSE status END, updated_at = ? WHERE status = 'ACTIVE' OR (id = ? AND status = 'READY')",
-        confirmedCycle, this.now(), confirmedCycle,
-      );
-      globalThis.localStorage?.removeItem(activationIntentKey);
-      return this.getToday();
-    }
+    if (!row) return null;
     return {
       sessionPlanId: row.session_plan_id,
       cycleId: row.cycle_id,

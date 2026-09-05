@@ -26,7 +26,7 @@ Screenshots, the synthetic SQLite copy and JSON readback remain under ignored
 `test-results/`. These are supporting evidence, not substitutes for assertions.
 
 `npm run test:journeys:mutations` runs the fault proofs described below, then
-requires the unmodified smoke to pass. Future accepted consumer behaviors
+requires all unmodified consumer journeys to pass. Future accepted consumer behaviors
 accumulate in the mandatory command; unresolved witnesses stay separate.
 
 ## Separate next-workout witness
@@ -42,6 +42,12 @@ Today asking for review without a reachable workout action. Evidence is under
 This is an observed defect, not a passing or expected-failure test. No fixture
 injects the proposal, bypasses safety, or modifies personal data.
 
+The requirement activation journey selects exact bench press, horizontal push and
+power through Settings, creates a named preview, then independently reads every
+stored session for the three resolved requirement kinds and valid rep/set targets.
+Activation and a new browser page must preserve the exact template and session
+prescriptions. This browser coverage does not replace native or legacy-repair acceptance.
+
 ## Mutation coverage
 
 The proof command now makes one disposable source/export copy per fault and
@@ -53,6 +59,13 @@ saved load, reps, note and disposition; restored load, reps, note and completion
 and restored workout identity. The same unmodified smoke must fail at the
 specified consumer or independent persistence assertion, not at export/setup.
 The command finally reruns the unchanged baseline and writes a proof summary.
+Catalog fault proofs independently bypass equipment compatibility, ignore the
+impact restriction, and erase requirement field identity. Each must fail the
+matching production settings assertion. Run only this bounded group with
+`npm run test:journeys:mutations -- --catalog`; it still finishes with the full
+unmodified journey suite. Its summary is `catalog-proof-summary.json`, separate
+from the complete matrix summary. Existing persistence faults run only the smoke
+so a second journey failure cannot obscure their expected failure count.
 No fault switch is shipped in application code.
 
 The matrix below tracks product acceptance, not release approval. Browser visual

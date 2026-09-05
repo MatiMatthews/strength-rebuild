@@ -28,6 +28,9 @@ export async function readPersistence(page: Page, info: TestInfo) {
   try {
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
     return {
+      settings: db.prepare('SELECT key, value_json FROM app_setting ORDER BY key').all(),
+      templates: db.prepare('SELECT id, snapshot_json FROM program_template ORDER BY id').all(),
+      sessionSnapshots: db.prepare('SELECT id, snapshot_json FROM session_plan ORDER BY id').all(),
       proposals: db.prepare('SELECT id, cycle_id, policy_version, inputs_json, output_json, decision FROM progression_proposal').all(),
       plannedSessions: db.prepare('SELECT s.id, s.day_index, s.status, w.week_index, w.status AS week_status FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id WHERE c.status = \'ACTIVE\' ORDER BY w.week_index, s.day_index').all(),
       cycles: db.prepare('SELECT id, kind, status FROM cycle ORDER BY id').all(),
