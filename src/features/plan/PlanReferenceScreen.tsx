@@ -1,3 +1,4 @@
+import type { InvalidSessionReference } from '@/application/programs/program-service';
 import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
 import { exerciseCatalog } from '@/data/seeds/exercises';
@@ -17,6 +18,7 @@ import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/fe
 import type { BackupService } from '@/application/export';
 
 export interface PlanPrograms {
+  listInvalidSessionReferences?(): Promise<readonly InvalidSessionReference[]>;
   createPlan(requests: readonly CyclePrescriptionRequest[]): Promise<readonly CyclePrescriptionSnapshot[]>;
   listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]>;
   getActiveCycleId(): Promise<string | null>;
@@ -29,6 +31,7 @@ const roleNames: Record<string, string> = { activation: 'Activación', primary: 
 
 export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
+  const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [weeks, setWeeks] = useState('4');
   const [cycles, setCycles] = useState<readonly CyclePrescriptionSnapshot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -39,8 +42,8 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
   const [reviewEligible, setReviewEligible] = useState(false);
   useEffect(() => {
     let live = true;
-    Promise.all([programs.listCycleSnapshots(), programs.getActiveCycleId()]).then(([storedCycles, activeId]) => {
-      if (live) { setCycles(storedCycles); setActive(activeId); }
+    Promise.all([programs.listCycleSnapshots(), programs.getActiveCycleId(), programs.listInvalidSessionReferences?.() ?? Promise.resolve([])]).then(([storedCycles, activeId, invalid]) => {
+      if (live) { setCycles(storedCycles); setActive(activeId); setInvalidSessions(invalid); }
     });
     return () => { live = false; };
   }, [programs]);
@@ -89,6 +92,11 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
 
   return <Screen testID="plan-screen">
     <AppMasthead context="Crea el plan sin conexión. Nada se activa sin tu confirmación." title="PLAN" />
+    {invalidSessions.length > 0 ? <Panel>
+      <FeedbackBanner message="Hay ejercicios fuera del catálogo en tu plan guardado." tone="danger" />
+      {invalidSessions.some((session) => session.unstarted) ? <AppText>Sesiones sin iniciar que necesitan revisión antes de entrenar: {invalidSessions.filter((session) => session.unstarted).length}.</AppText> : null}
+      {invalidSessions.some((session) => !session.unstarted) ? <AppText>Sesiones iniciadas o cerradas con referencias originales: {invalidSessions.filter((session) => !session.unstarted).length}. No se sustituye el trabajo registrado.</AppText> : null}
+    </Panel> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />

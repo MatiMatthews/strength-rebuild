@@ -41,6 +41,15 @@ export interface TodayData {
   readonly session: CyclePrescriptionSnapshot['weeks'][number]['sessions'][number];
 }
 
+export interface InvalidSessionReference {
+  readonly cycleId: string;
+  readonly sessionPlanId: string;
+  readonly weekIndex: number;
+  readonly dayIndex: number;
+  readonly invalidExerciseIds: readonly string[];
+  readonly unstarted: boolean;
+}
+
 export interface TodayContext {
   readonly activeSession: boolean;
   readonly restrictionActive: boolean;
@@ -108,6 +117,27 @@ export class ProgramService {
   async listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]> {
     const rows = await this.db.getAllAsync<CycleRow>('SELECT snapshot_json FROM cycle ORDER BY rowid');
     return rows.map(({ snapshot_json }) => JSON.parse(snapshot_json) as CyclePrescriptionSnapshot);
+  }
+
+  /** Read-only inventory: any recorded workout protects a session, regardless of its status. */
+  async listInvalidSessionReferences(): Promise<readonly InvalidSessionReference[]> {
+    const rows = await this.db.getAllAsync<{
+      id: string; cycle_id: string; week_index: number; day_index: number;
+      snapshot_json: string; status: string; has_workout: number;
+    }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status,
+        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout
+      FROM session_plan s JOIN training_week w ON w.id = s.training_week_id
+      JOIN cycle c ON c.id = w.cycle_id ORDER BY c.rowid, w.week_index, s.day_index`);
+    const available = new Set(exerciseCatalog.filter((entry) => entry.pattern !== 'review').map((entry) => entry.id));
+    return rows.flatMap((row) => {
+      const session = JSON.parse(row.snapshot_json) as TodayData['session'];
+      const exercises = [...session.exercises,
+        ...(session.blocks ?? []).filter((block) => block.role !== 'finish-review').flatMap((block) => block.exercises)];
+      const invalidExerciseIds = [...new Set(exercises.filter((exercise) => !available.has(exercise.exerciseId)).map((exercise) => exercise.exerciseId))];
+      return invalidExerciseIds.length ? [{ cycleId: row.cycle_id, sessionPlanId: row.id,
+        weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
+        unstarted: row.status === 'PLANNED' && !row.has_workout }] : [];
+    });
   }
 
   async getActiveCycleId(): Promise<string | null> {

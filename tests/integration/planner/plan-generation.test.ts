@@ -23,6 +23,37 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('inventories invalid stored sessions without changing unstarted or recorded work after reopen', async () => {
+    const path = `${process.env.TMPDIR ?? '/tmp'}/strength-legacy-inventory-${process.pid}-${Date.now()}.sqlite`;
+    const first = open(path);
+    await migrateDatabase(first.db);
+    const service = new ProgramService(first.db);
+    await service.createPlan([{ id: 'legacy', type: 'strength', weeks: 1 }, { id: 'valid', type: 'strength', weeks: 1 }]);
+    for (const day of [1, 2, 3]) {
+      const id = `legacy-week-1-day-${day}`;
+      const row = await first.db.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan WHERE id = ?', id);
+      const snapshot = JSON.parse(row!.snapshot_json);
+      snapshot.exercises[0].exerciseId = 'missing-flat';
+      snapshot.blocks[0].exercises[0].exerciseId = 'missing-block';
+      await first.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(snapshot), id);
+    }
+    await first.db.runAsync("UPDATE session_plan SET status = 'COMPLETED' WHERE id = 'legacy-week-1-day-2'");
+    await first.db.runAsync(`INSERT INTO workout_session (id, schema_version, created_at, updated_at, session_plan_id, status, prescribed_snapshot_json, actual_snapshot_json)
+      VALUES ('recorded', 1, 'now', 'now', 'legacy-week-1-day-3', 'IN_PROGRESS', '{}', '{"load":80}')`);
+    const tables = ['cycle', 'training_week', 'session_plan', 'workout_session'];
+    const before = await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)));
+    const expected = [1, 2, 3].map((day) => ({ cycleId: 'legacy', sessionPlanId: `legacy-week-1-day-${day}`, weekIndex: 1, dayIndex: day,
+      invalidExerciseIds: ['missing-flat', 'missing-block'], unstarted: day === 1 }));
+    expect(await service.listInvalidSessionReferences()).toEqual(expected);
+    expect(await service.listInvalidSessionReferences()).toEqual(expected);
+    expect(await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+    first.close();
+    const reopened = open(path);
+    expect(await new ProgramService(reopened.db).listInvalidSessionReferences()).toEqual(expected);
+    expect(await Promise.all(tables.map((table) => reopened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
+    reopened.close();
+  });
+
   it('rejects warmup-only workouts without any partial writes or active-plan changes after reopen', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-empty-work-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);

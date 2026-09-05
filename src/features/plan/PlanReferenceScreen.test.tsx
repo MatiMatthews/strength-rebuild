@@ -12,6 +12,25 @@ import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 describe('PlanReferenceScreen', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('warns about invalid sessions before expanding weeks and separates recorded work', async () => {
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn(),
+      listCycleSnapshots: jest.fn().mockResolvedValue([]),
+      getActiveCycleId: jest.fn().mockResolvedValue('legacy'),
+      listInvalidSessionReferences: jest.fn().mockResolvedValue([
+        { cycleId: 'legacy', sessionPlanId: 'future', weekIndex: 1, dayIndex: 1, invalidExerciseIds: ['missing'], unstarted: true },
+        { cycleId: 'legacy', sessionPlanId: 'started', weekIndex: 1, dayIndex: 2, invalidExerciseIds: ['missing'], unstarted: false },
+      ]),
+    };
+    const view = await render(<PlanReferenceScreen programs={programs} />);
+    await view.findByText('Hay ejercicios fuera del catálogo en tu plan guardado.');
+    expect(view.getByText('Sesiones sin iniciar que necesitan revisión antes de entrenar: 1.')).toBeTruthy();
+    expect(view.getByText('Sesiones iniciadas o cerradas con referencias originales: 1. No se sustituye el trabajo registrado.')).toBeTruthy();
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+    expect(programs.createPlan).not.toHaveBeenCalled();
+  });
+
+
   it('explains insufficient work and retains preview inputs and the saved plan', async () => {
     const cycles = generateCycleSequence([{ id: 'existing', type: 'strength', weeks: 1 }]);
     const programs: PlanPrograms = {
