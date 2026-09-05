@@ -7,11 +7,12 @@ import { catalogCompatibility } from '@/domain/prescriptions/catalog-requirement
 import type { TrainingSettings } from '@/features/settings/settings';
 
 /** Local exploration only; committing a repair requires a separate guarded transaction. */
-export function LegacyReferencePreview({ reference, programs, settings, onCancel }: {
+export function LegacyReferencePreview({ reference, programs, settings, onCancel, onOpenSettings }: {
   reference: InvalidSessionReference;
   programs: Pick<ProgramService, 'previewLegacyReplacement'>;
   settings: TrainingSettings;
   onCancel(): void;
+  onOpenSettings?(): void;
 }) {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,7 @@ export function LegacyReferencePreview({ reference, programs, settings, onCancel
       {choices.map((exercise) => <ActionButton key={exercise.id} accessibilityLabel={`Ver propuesta ${exercise.name} para ${original}`} disabled={busy} onPress={() => choose(original, exercise.id)} tone="secondary">{exercise.name}</ActionButton>)}
     </Panel>) : null}
     {choices.length === 0 ? <AppText>No hay opciones compatibles con la búsqueda, tu equipo y restricciones. Revisa la búsqueda o la configuración del plan.</AppText> : null}
+    {choices.length === 0 && onOpenSettings ? <ActionButton onPress={onOpenSettings} tone="secondary">Revisar equipo y restricciones</ActionButton> : null}
     {busy ? <AppText>Preparando propuesta…</AppText> : null}
     {error ? <FeedbackBanner message={error} tone="danger" /> : null}
     {preview ? <Panel>

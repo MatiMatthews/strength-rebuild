@@ -23,12 +23,18 @@ describe('PlanReferenceScreen', () => {
         { cycleId: 'legacy', sessionPlanId: 'started', weekIndex: 1, dayIndex: 2, invalidExerciseIds: ['missing'], unstarted: false },
       ]),
     };
-    const view = await render(<PlanReferenceScreen programs={programs} />);
+    const onOpenSettings = jest.fn();
+    const view = await render(<PlanReferenceScreen programs={programs} onOpenSettings={onOpenSettings} />);
     await view.findByText('Hay ejercicios fuera del catálogo en tu plan guardado.');
     expect(view.getByText('Sesiones sin iniciar que necesitan revisión antes de entrenar: 1.')).toBeTruthy();
     expect(view.getByText('Sesiones iniciadas o cerradas con referencias originales: 1. No se sustituye el trabajo registrado.')).toBeTruthy();
     await fireEvent.press(view.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' }));
     expect(view.queryByRole('button', { name: 'Revisar referencias de semana 1, sesión 2' })).toBeNull();
+    await fireEvent.changeText(view.getByLabelText('Buscar ejercicio compatible'), 'sin coincidencias');
+    await fireEvent.press(view.getByRole('button', { name: 'Revisar equipo y restricciones' }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(programs.previewLegacyReplacement).not.toHaveBeenCalled();
+    await fireEvent.changeText(view.getByLabelText('Buscar ejercicio compatible'), '');
     await fireEvent.press(view.getByRole('button', { name: 'Ver propuesta Press banca para missing' }));
     await view.findByText('Propuesta: Press banca');
     expect(view.getByText('3 series · 3–6 repeticiones · RIR 2–3')).toBeTruthy();

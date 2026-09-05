@@ -68,6 +68,12 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
       continue;
     }
     await app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true }).click();
+    await app.getByLabel('Buscar ejercicio compatible', { exact: true }).fill('sin coincidencias');
+    await app.getByRole('button', { name: 'Revisar equipo y restricciones', exact: true }).click();
+    await expect(app).toHaveURL(/settings/);
+    expect(await readPersistence(app, info)).toEqual(before);
+    await app.goto('/plan');
+    await app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true }).click();
     await app.getByLabel('Buscar ejercicio compatible', { exact: true }).fill('Press banca');
     await app.getByRole('button', { name: 'Ver propuesta Press banca para missing-legacy', exact: true }).click();
     await expect(app.getByText('Propuesta: Press banca', { exact: true })).toBeVisible();
