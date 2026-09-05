@@ -45,7 +45,7 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
       }
       if (changed !== 1) throw new Error(`Expected one synthetic database, changed ${changed}`);
     }, Array.from(readFileSync(filename)));
-    const before = await readPersistence(fixture, info);
+    let before = await readPersistence(fixture, info);
     await fixture.close();
 
 
@@ -72,8 +72,24 @@ test(`closed=${closedCycle}: Today identifies an unknown persisted exercise with
     await app.getByRole('button', { name: 'Revisar equipo y restricciones', exact: true }).click();
     await expect(app).toHaveURL(/settings/);
     expect(await readPersistence(app, info)).toEqual(before);
-    await app.goto('/plan');
+    {
+      await app.getByLabel('Alternar equipo Bandas', { exact: true }).click();
+      await app.getByRole('button', { name: 'Guardar configuración local', exact: true }).click();
+      await expect(app.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
+      const saved = await readPersistence(app, info);
+      expect({ ...saved, settings: before.settings }).toEqual(before);
+      expect(JSON.parse(String(saved.settings.find(row => row.key === 'training-settings')!.value_json)).equipment.includes('Bandas')).toBe(attempt === 1);
+      before = saved;
+    }
+    await app.getByRole('button', { name: 'Volver a Hoy', exact: true }).click();
+    await expect(app).toHaveURL(/plan/);
+    if (await app.getByRole('button', { name: 'Cancelar revisión de referencias', exact: true }).count()) {
+      await app.getByRole('button', { name: 'Cancelar revisión de referencias', exact: true }).click();
+    }
     await app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true }).click();
+    const pallof = app.getByRole('button', { name: 'Ver propuesta Press Pallof para missing-legacy', exact: true });
+    if (attempt === 1) await expect(pallof).toBeVisible();
+    else await expect(pallof).toHaveCount(0);
     await app.getByLabel('Buscar ejercicio compatible', { exact: true }).fill('Press banca');
     await app.getByRole('button', { name: 'Ver propuesta Press banca para missing-legacy', exact: true }).click();
     await expect(app.getByText('Propuesta: Press banca', { exact: true })).toBeVisible();

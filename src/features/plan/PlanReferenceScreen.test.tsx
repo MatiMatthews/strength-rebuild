@@ -7,10 +7,34 @@ import { palette } from '@/design-system/v2.2/tokens';
 
 import { generateCycleSequence, InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 
+import { defaultSettings } from '@/features/settings/settings';
+
 import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 
 describe('PlanReferenceScreen', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('reloads compatible choices after returning from settings without writing plans', async () => {
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn(), previewLegacyReplacement: jest.fn(),
+      listCycleSnapshots: jest.fn().mockResolvedValue([]), getActiveCycleId: jest.fn().mockResolvedValue('legacy'),
+      listInvalidSessionReferences: jest.fn().mockResolvedValue([
+        { cycleId: 'legacy', sessionPlanId: 'future', weekIndex: 1, dayIndex: 1, invalidExerciseIds: ['missing'], unstarted: true },
+      ]),
+    };
+    const store = { load: jest.fn().mockResolvedValue(defaultSettings), save: jest.fn() };
+    const view = await render(<PlanReferenceScreen programs={programs} settingsStore={store} focused />);
+    await fireEvent.press(await view.findByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' }));
+    expect(view.queryByRole('button', { name: 'Ver propuesta Press Pallof para missing' })).toBeNull();
+    await view.rerender(<PlanReferenceScreen programs={programs} settingsStore={store} focused={false} />);
+    store.load.mockResolvedValue({ ...defaultSettings, equipment: [...defaultSettings.equipment, 'Bandas'] });
+    await view.rerender(<PlanReferenceScreen programs={programs} settingsStore={store} focused />);
+    await fireEvent.press(await view.findByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' }));
+    expect(await view.findByRole('button', { name: 'Ver propuesta Press Pallof para missing' })).toBeTruthy();
+    expect(store.save).not.toHaveBeenCalled();
+    expect(programs.createPlan).not.toHaveBeenCalled();
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+  });
 
   it('warns about invalid sessions before expanding weeks and separates recorded work', async () => {
     const programs: PlanPrograms = {

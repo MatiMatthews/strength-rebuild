@@ -31,7 +31,7 @@ const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia
 const dayNames: Record<string, string> = { monday: 'Lunes', wednesday: 'Miércoles', friday: 'Viernes' };
 const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
-export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
+export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
@@ -51,7 +51,21 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
     });
     return () => { live = false; };
   }, [programs]);
-  useEffect(() => { if (settingsStore) void settingsStore.load().then((settings) => { setPlanningSettings(settings); setSettingsReady(true); }); }, [settingsStore]);
+  useEffect(() => {
+    let live = true;
+    void Promise.resolve().then(async () => {
+      if (!live) return;
+      setReviewing(null);
+      setSettingsReady(!settingsStore);
+      if (focused && settingsStore) {
+        const settings = await settingsStore.load();
+        if (live) { setPlanningSettings(settings); setSettingsReady(true); }
+      }
+    }).catch(() => {
+      if (live) setFeedback({ message: 'No se pudo cargar la configuración. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
+    });
+    return () => { live = false; };
+  }, [focused, settingsStore]);
   useEffect(() => {
     let live = true;
     if (active && reviews?.isEligible) void reviews.isEligible(active, 1).then((eligible) => { if (live) setReviewEligible(eligible); });
@@ -103,6 +117,7 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
       {settingsReady && programs.previewLegacyReplacement ? invalidSessions.filter((session) => session.unstarted).map((session) => <ActionButton key={session.sessionPlanId} accessibilityLabel={`Revisar referencias de semana ${session.weekIndex}, sesión ${session.dayIndex}`} onPress={() => setReviewing(session)} tone="secondary">Revisar semana {session.weekIndex} · sesión {session.dayIndex}</ActionButton>) : null}
     </Panel> : null}
     {reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs) }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
+    {active && feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />
