@@ -124,8 +124,8 @@ export class ProgramService {
   async listInvalidSessionReferences(): Promise<readonly InvalidSessionReference[]> {
     const rows = await this.db.getAllAsync<{
       id: string; cycle_id: string; week_index: number; day_index: number;
-      snapshot_json: string; status: string; has_workout: number;
-    }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status,
+      snapshot_json: string; status: string; cycle_status: string; has_workout: number;
+    }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status, c.status AS cycle_status,
         EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout
       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id
       JOIN cycle c ON c.id = w.cycle_id ORDER BY c.rowid, w.week_index, s.day_index`);
@@ -137,7 +137,7 @@ export class ProgramService {
       const invalidExerciseIds = [...new Set(exercises.filter((exercise) => !available.has(exercise.exerciseId)).map((exercise) => exercise.exerciseId))];
       return invalidExerciseIds.length ? [{ cycleId: row.cycle_id, sessionPlanId: row.id,
         weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
-        unstarted: row.status === 'PLANNED' && !row.has_workout }] : [];
+        unstarted: row.status === 'PLANNED' && ['READY', 'ACTIVE'].includes(row.cycle_status) && !row.has_workout }] : [];
     });
   }
 

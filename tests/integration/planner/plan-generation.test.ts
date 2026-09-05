@@ -23,6 +23,25 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('does not offer repairs for planned rows inside a completed cycle', async () => {
+    const first = open(':memory:');
+    await migrateDatabase(first.db);
+    const service = new ProgramService(first.db);
+    await service.createPlan([{ id: 'closed', type: 'strength', weeks: 1 }]);
+    const id = 'closed-week-1-day-1';
+    const row = await first.db.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan WHERE id = ?', id);
+    const snapshot = JSON.parse(row!.snapshot_json);
+    snapshot.exercises[0].exerciseId = 'missing';
+    await first.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(snapshot), id);
+    expect((await service.listInvalidSessionReferences())[0]?.unstarted).toBe(true);
+    await first.db.runAsync("UPDATE cycle SET status = 'COMPLETED' WHERE id = 'closed'");
+    const before = await first.db.getAllAsync('SELECT * FROM session_plan');
+    expect((await service.listInvalidSessionReferences())[0]?.unstarted).toBe(false);
+    await expect(service.previewLegacyReplacement(id, 'missing', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('cerrada');
+    expect(await first.db.getAllAsync('SELECT * FROM session_plan')).toEqual(before);
+    first.close();
+  });
+
   it('inventories invalid stored sessions without changing unstarted or recorded work after reopen', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-legacy-inventory-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);
