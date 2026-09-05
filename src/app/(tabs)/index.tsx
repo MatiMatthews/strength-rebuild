@@ -57,7 +57,7 @@ export default function TodayRoute() {
     return () => { live = false; };
   }, [programs, requestedScenario, scenarioReady, workouts, revision]));
   if (requestedScenario === 'data-failure' && scenarioReady) return <DataFailureScreen onRetry={() => setScenarioReady(false)} />;
-  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} initialReadinessInput={persistedReadiness} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
+  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen onOpenReview={() => router.push('/weekly-review' as Href)} recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} initialReadinessInput={persistedReadiness} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
     if (!('data' in state)) throw new Error('No planned session is available for readiness');
     await workouts.applyReadiness(state.data, { ...input, region: input.abdominalRestrictionActive ? 'abdominal' : 'other', reproducedByBraceCoughOrSneeze: false });
   }} onStartWorkout={navigateToWorkout} /></FocusedScene>;

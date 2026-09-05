@@ -5,7 +5,7 @@ import {
   ReadinessGate,
   type ReadinessGateProps,
 } from "@/features/readiness/ReadinessGate";
-import { Screen } from "@/design-system/v2.2/primitives";
+import { ActionButton, Screen } from "@/design-system/v2.2/primitives";
 import {
   AppMasthead,
   BrandContent,
@@ -31,6 +31,7 @@ type Props = {
   initialReadinessInput?: SafetyInput | null;
   onApplyReadiness?: (input: SafetyInput) => void | Promise<void>;
   onOpenSettings: () => void;
+  onOpenReview?: () => void;
   onStartWorkout: () => void;
   readinessGate?: ComponentType<ReadinessGateProps>;
   state: TodayState;
@@ -63,6 +64,7 @@ export function TodayReferenceScreen({
   initialReadinessInput = null,
   onApplyReadiness,
   onOpenSettings,
+  onOpenReview,
   onStartWorkout,
   readinessGate: Readiness = ReadinessGate,
   state,
@@ -107,6 +109,7 @@ export function TodayReferenceScreen({
           <View accessibilityLabel={emptyCopy[0]} testID="today-alternate-state" style={styles.alternate}>
             <Text accessibilityRole="header" aria-level={2} style={[styles.display, { color: theme.text }]}>{emptyCopy[0]}</Text>
             <Text style={[styles.body, { color: theme.textMuted }]}>{emptyCopy[1]}</Text>
+            {state.kind === "review-required" && onOpenReview ? <ActionButton onPress={onOpenReview}>Abrir revisión semanal</ActionButton> : null}
           </View>
         </BrandContent>
       </Screen>

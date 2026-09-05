@@ -1,7 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import { ProgramService } from '../../../src/application/programs/program-service';
-import { WeeklyReviewService } from '../../../src/application/progression/weekly-review';
 import { migrateDatabase, type MigrationDatabase } from '../../../src/data/migrations';
 import type { RepositoryDatabase, SqlValue } from '../../../src/data/repositories';
 
@@ -60,11 +59,14 @@ describe('plan generation SQLite seam', () => {
       const [original] = await programs.createPlan([{ id: 'reviewed', type: 'strength', weeks: 2, schedule: [2, 4, 6] }]);
       await programs.activateCycle('reviewed');
       await opened.db.runAsync("UPDATE training_week SET status = 'REVIEW' WHERE cycle_id = 'reviewed' AND week_index = 1");
-      const reviews = new WeeklyReviewService(opened.db, () => '2026-09-05T10:00:00.000Z', () => 'synthetic-progression');
-      const proposal = await reviews.propose({ cycleId: 'reviewed', weekIndex: 1, nextWeekIndex: 2, outcome: 'successful' });
-      await opened.db.runAsync('UPDATE progression_proposal SET output_json = ? WHERE id = ?',
-        JSON.stringify({ ...proposal, exerciseId: 'barbell-bench-press', nextTarget: { load: 45, reps: 5, sets: 4 } }), proposal.id);
-      await reviews.decide(proposal.id, true);
+      // Synthetic already-applied future prescription: read-only Plan/Today projection contract.
+      const future = await opened.db.getFirstAsync<{ id: string; snapshot_json: string }>("SELECT s.id, s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = 'reviewed' AND w.week_index = 2 ORDER BY s.day_index LIMIT 1");
+      const snapshot = JSON.parse(future!.snapshot_json);
+      const tune = (exercise: { exerciseId: string; target: object }) => exercise.exerciseId === 'barbell-bench-press' ? { ...exercise, calculatedLoad: 45, target: { ...exercise.target, sets: 4, reps: { min: 5, max: 5 } } } : exercise;
+      snapshot.exercises = snapshot.exercises.map(tune);
+      snapshot.blocks = snapshot.blocks?.map((block: { exercises: typeof snapshot.exercises }) => ({ ...block, exercises: block.exercises.map(tune) }));
+      await opened.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(snapshot), future!.id);
+      await opened.db.runAsync("UPDATE training_week SET status = 'COMPLETED' WHERE cycle_id = 'reviewed' AND week_index = 1");
       const tables = ['cycle', 'training_week', 'session_plan', 'workout_session', 'decision_log'];
       const before = await Promise.all(tables.map((table) => opened.db.getAllAsync(`SELECT * FROM ${table}`)));
       const today = await programs.getToday();

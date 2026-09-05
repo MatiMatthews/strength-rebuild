@@ -34,14 +34,14 @@ describe('PlanReferenceScreen', () => {
       listCycleSnapshots: jest.fn().mockResolvedValue(generateCycleSequence([{ id: 'active', type: 'strength', weeks: 2 }])),
       getActiveCycleId: jest.fn().mockResolvedValue('active'),
     };
-    const reviews = { isEligible: jest.fn().mockResolvedValue(false) } as unknown as WeeklyReviewService;
-    const view = await render(<PlanReferenceScreen programs={programs} reviews={reviews} focused />);
-    expect(view.queryByRole('button', { name: 'Crear propuesta semanal' })).toBeNull();
-    await view.rerender(<PlanReferenceScreen programs={programs} reviews={reviews} focused={false} />);
-    jest.mocked(reviews.isEligible).mockResolvedValue(true);
-    await view.rerender(<PlanReferenceScreen programs={programs} reviews={reviews} focused />);
-    expect(await view.findByRole('button', { name: 'Crear propuesta semanal' })).toBeTruthy();
-    expect(reviews.isEligible).toHaveBeenLastCalledWith('active', 1);
+    const reviews = { listPendingWeeks: jest.fn().mockResolvedValue([]) } as unknown as WeeklyReviewService;
+    const view = await render(<PlanReferenceScreen programs={programs} reviews={reviews} onOpenReview={jest.fn()} focused />);
+    expect(view.queryByRole('button', { name: 'Abrir revisión semanal' })).toBeNull();
+    await view.rerender(<PlanReferenceScreen programs={programs} reviews={reviews} onOpenReview={jest.fn()} focused={false} />);
+    jest.mocked(reviews.listPendingWeeks).mockResolvedValue([{ cycleId: 'active', weekIndex: 2 }]);
+    await view.rerender(<PlanReferenceScreen programs={programs} reviews={reviews} onOpenReview={jest.fn()} focused />);
+    expect(await view.findByRole('button', { name: 'Abrir revisión semanal' })).toBeTruthy();
+    expect(reviews.listPendingWeeks).toHaveBeenLastCalledWith('active');
   });
 
   it('ignores a superseded focus read instead of restoring older settings', async () => {

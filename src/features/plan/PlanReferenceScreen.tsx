@@ -14,7 +14,7 @@ import { palette, spacing , palette as athletePalette, spacing as athleteSpacing
 import { useAppTheme } from '@/design-system/use-app-theme';
 import type { CyclePrescriptionRequest, CyclePrescriptionSnapshot } from '@/domain/prescriptions/generator';
 import type { WeeklyReviewService } from '@/application/progression/weekly-review';
-import { WeeklyReviewPanel } from '@/features/review/WeeklyReviewPanel';
+import type { PendingWeek } from '@/application/progression/weekly-review';
 import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/features/settings/settings';
 import type { BackupService } from '@/application/export';
 
@@ -33,7 +33,7 @@ const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia
 const dayNames: Record<string, string> = { monday: 'Lunes', wednesday: 'Miércoles', friday: 'Viernes' };
 const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
-export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
+export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
@@ -46,14 +46,14 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; tone: 'danger' | 'success' } | null>(null);
   const [planningSettings, setPlanningSettings] = useState<TrainingSettings>(defaultSettings);
-  const [reviewEligible, setReviewEligible] = useState(false);
+  const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(async () => {
       if (!live) return;
       setReady(false);
       setReviewing(null);
-      setReviewEligible(false);
+      setPendingWeeks([]);
       if (!focused) return;
       // Actions consume one completed focus refresh, never mixed old and new inputs.
       const [storedCycles, activeId, invalid, settings] = await Promise.all([
@@ -78,10 +78,10 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
     let live = true;
     void Promise.resolve().then(async () => {
       if (!live) return;
-      setReviewEligible(false);
-      if (!ready || !focused || !active || !reviews?.isEligible) return;
-      const eligible = await reviews.isEligible(active, 1);
-      if (live) setReviewEligible(eligible);
+      setPendingWeeks([]);
+      if (!ready || !focused || !active || !reviews?.listPendingWeeks) return;
+      const pending = await reviews.listPendingWeeks(active);
+      if (live) setPendingWeeks(pending);
     }).catch(() => {
       if (live) setFeedback({ message: 'No se pudo comprobar la revisión semanal. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
     });
@@ -128,6 +128,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
 
   return <Screen testID="plan-screen">
     <AppMasthead context="Crea el plan sin conexión. Nada se activa sin tu confirmación." title="PLAN" />
+    {pendingWeeks.length > 0 && onOpenReview ? <Panel><AppText>Semana {pendingWeeks[0]!.weekIndex}: revisión pendiente antes de continuar.</AppText><ActionButton onPress={onOpenReview}>Abrir revisión semanal</ActionButton></Panel> : null}
     {invalidSessions.length > 0 ? <Panel>
       <FeedbackBanner message="Hay ejercicios fuera del catálogo en tu plan guardado." tone="danger" />
       {invalidSessions.some((session) => session.unstarted) ? <AppText>Sesiones sin iniciar que necesitan revisión antes de entrenar: {invalidSessions.filter((session) => session.unstarted).length}.</AppText> : null}
@@ -191,7 +192,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
           </Pressable>
         </View>;
       })}
-      {ready && focused && active && reviews && reviewEligible && cycles.find(({ id }) => id === active)?.weeks.length && (cycles.find(({ id }) => id === active)?.weeks.length ?? 0) > 1 ? <WeeklyReviewPanel cycleId={active} nextWeekIndex={2} reviews={reviews} /> : null}
+
     </View>
   </Screen>;
 }
