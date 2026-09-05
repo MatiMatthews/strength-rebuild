@@ -146,6 +146,9 @@ export function WorkoutReferenceScreen({
   const [finishing, setFinishing] = useState(false);
   const [skipSetIndex, setSkipSetIndex] = useState<number | null>(null);
   const [skipReason, setSkipReason] = useState("");
+  const [skipError, setSkipError] = useState("");
+  const [savingOmission, setSavingOmission] = useState(false);
+  const omissionLock = useRef(false);
   const [now, setNow] = useState(0);
   // A restored native route must explicitly transition to its persisted index
   // so the scroll reset runs; otherwise Android can reopen at the pre-kill
@@ -191,7 +194,7 @@ export function WorkoutReferenceScreen({
       );
   }, [programs, requireReadiness, workouts]);
   useEffect(() => {
-    if (!draft || !workouts) return;
+    if (!draft || !workouts || savingOmission) return;
     const timer = setTimeout(
       () =>
         void workouts
@@ -200,7 +203,7 @@ export function WorkoutReferenceScreen({
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts]);
+  }, [draft, workouts, savingOmission]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -392,6 +395,7 @@ export function WorkoutReferenceScreen({
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
+      <View style={styles.flex} pointerEvents={savingOmission ? "none" : "auto"}>
       <Screen scrollRef={scrollRef} testID="workout-screen">
         <WorkoutFrame
           commands={
@@ -402,6 +406,9 @@ export function WorkoutReferenceScreen({
                   disabled={exerciseIndex === 0}
                   onPress={() =>
                     setExerciseIndex((index) => {
+                      setSkipSetIndex(null);
+                      setSkipReason("");
+                      setSkipError("");
                       const next = Math.max(0, index - 1);
                       setDraft(
                         (current) =>
@@ -419,6 +426,9 @@ export function WorkoutReferenceScreen({
                   disabled={exerciseIndex === draft.exercises.length - 1}
                   onPress={() =>
                     setExerciseIndex((index) => {
+                      setSkipSetIndex(null);
+                      setSkipReason("");
+                      setSkipError("");
                       const next = Math.min(
                         draft.exercises.length - 1,
                         index + 1,
@@ -773,36 +783,12 @@ export function WorkoutReferenceScreen({
                 </ActionButton>
                 <ActionButton
                   accessibilityLabel={`Omitir serie ${index + 1}`}
+                  disabled={set.completed || savingOmission}
                   onPress={() => {
                     const initialReason = set.skipReason ?? "Omitida por el usuario";
-                    setDraft((current) =>
-                      current &&
-                      (workouts
-                        ? workouts.skipSet(current, exerciseIndex, index, initialReason)
-                        : {
-                            ...current,
-                            exercises: current.exercises.map((item, itemIndex) =>
-                              itemIndex !== exerciseIndex
-                                ? item
-                                : {
-                                    ...item,
-                                    sets: item.sets.map((candidate, setIndex) =>
-                                      setIndex === index
-                                        ? {
-                                            ...candidate,
-                                            completed: false,
-                                            skipped: true,
-                                            disposition: "SKIPPED",
-                                            skipReason: initialReason,
-                                          }
-                                        : candidate,
-                                    ),
-                                  },
-                            ),
-                          }),
-                    );
                     setSkipSetIndex(index);
                     setSkipReason(initialReason);
+                    setSkipError("");
                   }}
                   tone={set.disposition === "SKIPPED" ? "primary" : "secondary"}
                 >
@@ -829,54 +815,58 @@ export function WorkoutReferenceScreen({
                     ]}
                     value={skipReason}
                   />
+                  {skipError ? <AppText accessibilityRole="alert">{skipError}</AppText> : null}
                   <View style={styles.commands}>
                     <ActionButton
                       accessibilityLabel={`Confirmar omisión de la serie ${index + 1}`}
-                      disabled={!skipReason.trim()}
-                      onPress={() => {
-                        setDraft(
-                          (current) =>
-                            current &&
-                            (workouts
-                              ? workouts.skipSet(
-                                  current,
-                                  exerciseIndex,
-                                  index,
-                                  skipReason,
-                                )
-                              : {
-                                  ...current,
-                                  exercises: current.exercises.map(
-                                    (item, itemIndex) =>
-                                      itemIndex !== exerciseIndex
-                                        ? item
-                                        : {
-                                            ...item,
-                                            sets: item.sets.map(
-                                              (candidate, setIndex) =>
-                                                setIndex === index
-                                                  ? {
-                                                      ...candidate,
-                                                      completed: false,
-                                                      skipped: true,
-                                                      disposition: "SKIPPED",
-                                                      skipReason:
-                                                        skipReason.trim(),
-                                                    }
-                                                  : candidate,
-                                            ),
-                                          },
-                                  ),
-                                }),
-                        );
-                        setSkipSetIndex(null);
-                        setSkipReason("");
+                      disabled={savingOmission}
+                      onPress={async () => {
+                        if (omissionLock.current) return;
+                        if (!skipReason.trim()) {
+                          setSkipError("Escribe un motivo para omitir la serie.");
+                          return;
+                        }
+                        const current = latestDraftRef.current;
+                        if (!current) return;
+                        omissionLock.current = true;
+                        setSavingOmission(true);
+                        setSkipError("");
+                        try {
+                          const next = workouts
+                            ? workouts.skipSet(current, exerciseIndex, index, skipReason)
+                            : {
+                                ...current,
+                                exercises: current.exercises.map((item, itemIndex) =>
+                                  itemIndex !== exerciseIndex ? item : {
+                                    ...item,
+                                    sets: item.sets.map((candidate, setIndex) =>
+                                      setIndex !== index ? candidate : {
+                                        ...candidate, completed: false, skipped: true,
+                                        disposition: "SKIPPED" as const,
+                                        skipReason: skipReason.trim(),
+                                      }),
+                                  }),
+                              };
+                          latestDraftRef.current = next;
+                          if (workouts) await workouts.saveDraftSnapshot(next);
+                          setDraft(next);
+                          setSkipSetIndex(null);
+                          setSkipReason("");
+                        } catch {
+                          latestDraftRef.current = current;
+                          setSkipError("No se pudo guardar la omisión. Inténtalo de nuevo.");
+                        } finally {
+                          omissionLock.current = false;
+                          setSavingOmission(false);
+                        }
                       }}
                     >
-                      Confirmar omisión
+                      {savingOmission ? "Guardando…" : "Confirmar omisión"}
                     </ActionButton>
                     <ActionButton
+                      disabled={savingOmission}
                       onPress={() => {
+                        setSkipError("");
                         setSkipSetIndex(null);
                         setSkipReason("");
                       }}
@@ -891,6 +881,7 @@ export function WorkoutReferenceScreen({
           ))}
         </WorkoutFrame>
       </Screen>
+      </View>
     </KeyboardAvoidingView>
   );
 }

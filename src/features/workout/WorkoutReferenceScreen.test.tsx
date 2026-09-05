@@ -36,6 +36,36 @@ describe('Workout reference state', () => {
     expect(workouts.replaceExercise).not.toHaveBeenCalled();
   });
 
+  it('keeps a failed omission draft editable and retries without changing the original', async () => {
+    const draft: WorkoutDraft = { id: 'pending-omission', safetyModifications: [], exercises: [{
+      exerciseId: 'barbell-bench-press', originalExerciseId: 'barbell-bench-press', requirement: 'EXACT', sets: [{ load: '60', reps: '8', rir: '2',
+        technique: 'Limpia', pain: 0, notes: 'preserve', completed: false, skipped: false, disposition: 'PENDING' }],
+    }] };
+    const save = jest.fn().mockResolvedValue(undefined);
+    const skipSet = jest.fn((current: WorkoutDraft, _exercise: number, _set: number, reason: string): WorkoutDraft => ({
+      ...current, exercises: [{ ...current.exercises[0]!, sets: [{ ...current.exercises[0]!.sets[0]!,
+        skipped: true, disposition: 'SKIPPED', skipReason: reason }] }],
+    }));
+    const workouts = { startOrResume: jest.fn().mockResolvedValue(draft), saveDraftSnapshot: save,
+      canComplete: jest.fn().mockReturnValue(false), skipSet } as unknown as WorkoutService;
+    const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
+    const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} workouts={workouts} programs={programs} />);
+    await screen.findByLabelText('Omitir serie 1');
+    await fireEvent.press(screen.getByLabelText('Omitir serie 1'));
+    await fireEvent.changeText(screen.getByLabelText('Motivo para omitir la serie 1'), 'Equipo ocupado');
+    expect(skipSet).not.toHaveBeenCalled();
+    save.mockRejectedValueOnce(new Error('disk full'));
+    await fireEvent.press(screen.getByLabelText('Confirmar omisión de la serie 1'));
+    expect(skipSet).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('No se pudo guardar la omisión. Inténtalo de nuevo.')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Motivo para omitir la serie 1').props.value).toBe('Equipo ocupado');
+    expect(screen.queryByText('OMITIDA')).toBeNull();
+    save.mockResolvedValue(undefined);
+    await fireEvent.press(screen.getByLabelText('Confirmar omisión de la serie 1'));
+    expect(screen.getByText('OMITIDA')).toBeOnTheScreen();
+    expect(draft.exercises[0]!.sets[0]!.disposition).toBe('PENDING');
+  });
+
   it('keeps background autosave from overwriting an immediate text checkpoint', () => {
     const source = readFileSync(require.resolve('./WorkoutReferenceScreen'), 'utf8');
     expect(source).toContain('.saveDraftSnapshot(latestDraftRef.current ?? draft)');

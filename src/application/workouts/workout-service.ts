@@ -193,9 +193,17 @@ export class WorkoutService {
     });
   }
 
+  private snapshotQueue: Promise<void> = Promise.resolve();
+
   async saveDraftSnapshot(draft: WorkoutDraft): Promise<void> {
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
-    await this.repository.updateActualSnapshot(draft.id, JSON.stringify(draft));
+    // Use the same immediate checkpoint as text/background saves when available.
+    // This prevents a delayed autosave from overwriting a newer confirmed edit.
+    const snapshot = JSON.stringify(draft);
+    if (this.repository.updateActualSnapshotSync(draft.id, snapshot)) return;
+    const pending = this.snapshotQueue.then(() => this.repository.updateActualSnapshot(draft.id, snapshot));
+    this.snapshotQueue = pending.catch(() => undefined);
+    await pending;
   }
 
   saveDraftSnapshotBeforeProcessStop(draft: WorkoutDraft): boolean {
@@ -209,7 +217,7 @@ export class WorkoutService {
     const updatedSet = { ...set, ...patch };
     const safety = evaluateSafety({ pain: updatedSet.pain, painTrend: 'stable', techniqueChanged: updatedSet.technique !== 'Limpia' });
     const enforcedSet = safety.disposition === 'STOP_PATTERN' || safety.disposition === 'REVIEW_REQUIRED'
-      ? { ...updatedSet, completed: false, disposition: 'PENDING' as const }
+      ? { ...updatedSet, completed: false, disposition: updatedSet.skipped ? 'SKIPPED' as const : 'PENDING' as const }
       : updatedSet;
     return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, sets: item.sets.map((candidate, index) => index === setIndex ? enforcedSet : candidate) } : item), safetyModifications: safety.disposition === 'MODIFY_SET' || safety.disposition === 'STOP_PATTERN' || safety.disposition === 'REVIEW_REQUIRED' ? [...draft.safetyModifications, { ...safety, exerciseIndex, setIndex, recordedAt: this.now() }] : draft.safetyModifications };
   }
@@ -223,6 +231,9 @@ export class WorkoutService {
   }
   skipSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number, reason: string): WorkoutDraft {
     if (!reason.trim()) throw new Error('A skip reason is required');
+    const set = draft.exercises[exerciseIndex]?.sets[setIndex];
+    if (set?.completed) throw new Error('Completed work cannot be omitted');
+    if (set?.skipped && set.skipReason === reason.trim()) return draft;
     return this.recordSet(draft, exerciseIndex, setIndex, { completed: false, skipped: true, disposition: 'SKIPPED', skipReason: reason.trim() });
   }
   canComplete(draft: WorkoutDraft): boolean {
