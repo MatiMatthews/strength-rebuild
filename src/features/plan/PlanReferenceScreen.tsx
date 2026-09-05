@@ -21,7 +21,6 @@ export interface PlanPrograms {
   listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]>;
   getActiveCycleId(): Promise<string | null>;
   activateCycle(id: string): Promise<void>;
-  rememberCycleActivation?(id: string): void;
 }
 
 const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia', transition: 'Transición obligatoria', reentry: 'Reentrada' } as const;
@@ -97,7 +96,7 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
       <ActionButton accessibilityLabel="Crear vista previa del ciclo" onPress={create}>{busy ? 'Creando…' : 'Crear vista previa'}</ActionButton>
       {feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     </Panel>}
-    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy} onPress={activate} onPressIn={() => { const first = cycles.find(({ type }) => type !== 'transition'); if (first) programs.rememberCycleActivation?.(first.id); }}>Activar plan</ActionButton></Panel> : null}
+    {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy} onPress={activate}>Activar plan</ActionButton></Panel> : null}
     <OperationalSection label="HERRAMIENTAS DEL PLAN"><AppText color="muted">Edita tu perfil y equipo, o administra una copia local, en pantallas separadas.</AppText>{onOpenSettings ? <ActionButton accessibilityLabel="Abrir configuración del plan" onPress={onOpenSettings} tone="secondary">Configuración del plan</ActionButton> : null}{onOpenBackup ? <ActionButton accessibilityLabel="Abrir respaldo y recuperación" onPress={onOpenBackup} tone="secondary">Respaldo y recuperación</ActionButton> : null}</OperationalSection>
     <View style={[styles.programRail, { borderColor: theme.border }]} testID="program-rail">
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>

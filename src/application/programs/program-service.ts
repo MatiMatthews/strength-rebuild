@@ -10,7 +10,6 @@ type CycleRow = { snapshot_json: string };
 type IdRow = { id: string };
 type CountRow = { count: number };
 type CycleKindRow = { kind: CyclePrescriptionSnapshot['type']; status: string; rowid: number };
-const activationIntentKey = 'strength-rebuild.confirmed-cycle';
 
 function requestFingerprint(requests: readonly CyclePrescriptionRequest[]): string {
   const input = JSON.stringify(requests);
@@ -124,7 +123,6 @@ export class ProgramService {
       );
       if (await this.getActiveCycleId() !== id) throw new Error(`Cycle ${id} is not ready for activation`);
     });
-    globalThis.localStorage?.removeItem(activationIntentKey);
   }
 
   private async validateActivation(id: string): Promise<void> {
@@ -149,10 +147,6 @@ export class ProgramService {
       'SELECT s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,
     );
     sessions.forEach((session) => validateSession(JSON.parse(session.snapshot_json) as TodayData['session']));
-  }
-
-  rememberCycleActivation(id: string): void {
-    globalThis.localStorage?.setItem(activationIntentKey, id);
   }
 
   /** Applies an explicitly confirmed lifecycle step; time alone never calls this seam. */
@@ -217,12 +211,7 @@ export class ProgramService {
        ORDER BY c.rowid, w.week_index, s.day_index
        LIMIT 1`,
     );
-    if (!row) {
-      const confirmedCycle = globalThis.localStorage?.getItem(activationIntentKey);
-      if (!confirmedCycle) return null;
-      await this.activateCycle(confirmedCycle);
-      return this.getToday();
-    }
+    if (!row) return null;
     return {
       sessionPlanId: row.session_plan_id,
       cycleId: row.cycle_id,
