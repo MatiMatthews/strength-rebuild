@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
-test('deleting completed work requires confirmation, cancellation preserves it, and undo survives reopen', async ({ page, context }, info) => {
+test('omission and completed-set deletion remain independent through cancellation, undo and reopen', async ({ page, context }, info) => {
   await startSyntheticWorkout(page);
   const fields = page.getByLabel(/^Carga de la serie /);
   const count = await fields.count();
@@ -33,6 +33,21 @@ test('deleting completed work requires confirmation, cancellation preserves it, 
     await page.getByRole('button', { name: 'Cancelar eliminación', exact: true }).click();
     expect(await snapshot()).toEqual(deleted);
   }
+  // An omission made while undo is pending must survive restoration of the other set.
+  await page.getByRole('button', { name: 'Omitir serie 1', exact: true }).click();
+  await page.getByLabel('Motivo para omitir la serie 1', { exact: true }).fill('Abandoned omission');
+  await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  expect(await snapshot()).toEqual(deleted);
+  await page.getByRole('button', { name: 'Omitir serie 1', exact: true }).click();
+  await page.getByLabel('Motivo para omitir la serie 1', { exact: true }).fill('Equipo ocupado');
+  await page.getByRole('button', { name: 'Confirmar omisión de la serie 1', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
+  await expect(page.getByText('OMITIDA', { exact: true })).toHaveCount(1);
+  await expect.poll(async () => (await snapshot()).exercises[0].sets[0].skipReason).toBe('Equipo ocupado');
+  const omitted = await snapshot();
+  expect(omitted.setDeletions).toEqual(deleted.setDeletions);
+  const expectedOmitted = structuredClone(deleted);
+  Object.assign(expectedOmitted.exercises[0].sets[0], { completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Equipo ocupado' });
+  expect(omitted).toEqual(expectedOmitted);
   await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Unrelated later edit');
   await expect.poll(async () => (await snapshot()).exercises[0].sets[0].notes).toBe('Unrelated later edit');
   await page.close();
@@ -43,8 +58,15 @@ test('deleting completed work requires confirmation, cancellation preserves it, 
   const restored = await snapshot(reopened);
   expect(restored.exercises[0].sets.at(-1)).toEqual(before.exercises[0].sets.at(-1));
   expect(restored.exercises[0].sets[0].notes).toBe('Unrelated later edit');
+  expect(restored.exercises[0].sets[0]).toEqual({ ...omitted.exercises[0].sets[0], notes: 'Unrelated later edit' });
+  const expectedExercises = structuredClone(before.exercises);
+  expectedExercises[0].sets[0] = { ...omitted.exercises[0].sets[0], notes: 'Unrelated later edit' };
+  expect(restored.exercises).toEqual(expectedExercises);
+  expect(restored.setDeletions).toHaveLength(1);
+  expect(restored.setDeletions[0].restored).toBe(true);
+  await expect(reopened.getByText('OMITIDA', { exact: true })).toHaveCount(1);
   expect(restored.safetyModifications).toEqual(before.safetyModifications);
   await reopened.reload();
   expect((await snapshot(reopened)).exercises).toEqual(restored.exercises);
-  await info.attach('deletion-readback', { body: JSON.stringify({ before, deleted, restored }), contentType: 'application/json' });
+  await info.attach('deletion-readback', { body: JSON.stringify({ before, deleted, omitted, restored }), contentType: 'application/json' });
 });
