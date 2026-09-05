@@ -5,7 +5,7 @@ Use Node 24.11.1–24.x, npm 11.6.2–11.x and installed Google Chrome. Run
 `npm run check` includes deterministic installed Expo compatibility, unit and
 integration tests, advisory checks, and production web export.
 
-The journey command builds a fresh production export and owns a loopback server
+The journey command clears Metro caches, builds a fresh production export and owns a loopback server
 on port 4179. It refuses to reuse an existing server. COOP/COEP headers enable
 SQLite's worker and WASM. Playwright tears down the server and disposable browser
 context on success or failure; no existing browser profile or user data is used.
@@ -25,11 +25,70 @@ No app service, mock, hidden route or production test hook supplies the readback
 Screenshots, the synthetic SQLite copy and JSON readback remain under ignored
 `test-results/`. These are supporting evidence, not substitutes for assertions.
 
-`npm run test:journeys:mutations` proves two negative controls against the same
-smoke: aborting browser JavaScript must fail route visibility; rewriting only the
-disposable context's served database name to `:memory:` must fail persisted plan
-reopening. Both subprocesses must exit 1 at the expected consumer assertion, or
-the proof command fails. These faults never change the exported app or source.
-Run the unmodified smoke again after fault proofs. Future accepted consumer
-behaviors accumulate in this mandatory command; unresolved future witnesses
-must stay separate and must not be reported as passing.
+`npm run test:journeys:mutations` runs the fault proofs described below, then
+requires the unmodified smoke to pass. Future accepted consumer behaviors
+accumulate in the mandatory command; unresolved witnesses stay separate.
+
+## Separate next-workout witness
+
+Run `npm run test:journeys:witness:next-workout` to create/activate a synthetic
+plan and complete every first-session set through normal controls. It reloads
+Plan and Today, independently captures completed workout, session and proposal
+rows, and asserts that the next workout can be prepared and started. The
+unrepaired app exits **1**: first session COMPLETED, two sessions PLANNED, an
+undecided ordinary `progression-v1` hold proposal, no weekly review control, and
+Today asking for review without a reachable workout action. Evidence is under
+`test-results/next-workout-witness/` (SQLite, JSON, screenshots and failure trace).
+This is an observed defect, not a passing or expected-failure test. No fixture
+injects the proposal, bypasses safety, or modifies personal data.
+
+## Mutation coverage
+
+The proof command now makes one disposable source/export copy per fault and
+uses a new synthetic browser context each time. It shares installed dependencies
+read-only by symlink, removes only its own temporary copies, and retains failing
+assertions in `test-results/fault-proofs/`. Route blocking and memory-only SQLite
+remain negative controls. Additional source mutations independently corrupt
+saved load, reps, note and disposition; restored load, reps, note and completion;
+and restored workout identity. The same unmodified smoke must fail at the
+specified consumer or independent persistence assertion, not at export/setup.
+The command finally reruns the unchanged baseline and writes a proof summary.
+No fault switch is shipped in application code.
+
+The matrix below tracks product acceptance, not release approval. Browser visual
+proof means inspected production Chrome captures plus functional assertions;
+persistence proof means independent canonical SQLite readback after reopening,
+with migration checks when storage changes. Native proof means actual Android
+interaction and process recreation where specified, not a web viewport alone.
+“Pending” does not claim the behavior is absent; it means this inventory has no
+accepted end-to-end repair proof yet.
+
+| Consumer outcome | Status | Required behavior and evidence |
+| --- | --- | --- |
+| Reproducible consumer gates | Smoke accepted; combined acceptance pending | Fresh locked install/check; production plan/set/reopen, SQLite readback, Chrome captures, targeted faults and separate red witness. |
+| Valid exercise requirements | Pending | Exact/pattern/capability resolve catalog IDs; equipment/restriction negatives; visible invalid-input recovery; preview and stored IDs, preserve completed legacy records. |
+| Next workout after review | Observed red | Finish first session, reach and persist accept/keep/reject decisions, reopen into next session; genuine safety block remains; Chrome and proposal/session readback. |
+| Weekly and cycle transitions | Pending | Full week/cycle via UI; correct week/status, future-only targets, keep/reject negatives, explicit next cycle and deload; reopen and SQLite at transitions. |
+| Reversible set changes | Pending | Cancel omission leaves values/counts/storage unchanged; confirmed reason once; delete confirmation and exact undo; double-submit negatives; Chrome and reopened SQLite. |
+| Corrected history and units | Pending | Any-set correction with immutable original/audit; 60×8 + 60×8 corrected to 55×8 + 60×8 = 920 kg volume; kg/lb boundary conversion, legacy migration idempotence; effective UI/SQLite readback. |
+| First use and preferences | Pending | Resumable personal setup, exactly three days, real equipment/restrictions, unknown strength without invented load, isolated demo, local decimal entry; settings-to-Plan refresh and persistence. |
+| Athlete visual system | Pending | Chartreuse/ink/paper, Barlow/Lucide, compact bands and geometry; light/dark semantic contrast including success/warning/disabled; Chrome screen comparison, compatibility assertions. |
+| Today and Plan continuity | Pending | Real date/week/cycle, rest versus next session, preparation and main action at 360×732; exercise-specific entry, week selection/back context, accessible controls; screen and state readback. |
+| Compact workout logging | Pending | First editable row at 360×732, suitable time/per-side/bodyweight fields, active-row expansion, safety access, confirmed early finish; Android keyboard/safe-area interaction plus stored results. |
+| Workout position and rest | Pending | Contextual auto-rest and timer controls; timestamp-based restoration of exercise/set/draft after navigation, background and process death; actual Android and SQLite evidence. |
+| Safe exercise replacement | Pending | Real profile/history; confirmation and appropriate targets; preserve original completed work and append remaining alternative; no blind load transfer; restriction/equipment/empty-result negatives, SQLite attribution. |
+| Offline exercise guides | Pending | Complete start/end body/equipment, cues/errors, correct catalog mapping and alt text; redistributable media provenance; offline screens and contact sheet for human technique/clarity review. |
+| Useful Progress and history | Pending | Dated trends, completed/planned adherence, relevant exercise detail/filter, meaningful empty/partial/multi-cycle states; effective corrections/units in rows/charts, independent aggregate readback. |
+| Encrypted backup files | Pending | Android share/save and picker, preview then explicit restore; cancel/wrong-password/corruption/schema negatives leave DB intact; correction/unit roundtrip and offline file evidence. |
+| Accessibility and feedback | Pending | Semantics/H1/names/focus, meaningful titles, large fonts without clipping, async duplicate/error recovery, reduced motion/optional haptics; Chrome accessibility and actual Android settings/interaction. |
+| Integrated Android journeys | Pending | Fresh setup through full week/cycle, correction and backup; lowest supported plus modern API; offline/light/dark/keyboard/font/safe-area/motion/navigation and restart SQLite readback; no unresolved severe defects counted green. |
+| Release candidate artifact | Pending | Verified build SHA/package/version/APK hash/certificate fingerprint; offline install and in-place upgrade with history/active workout preserved; final native/backup reruns; physical-phone and publication decisions remain human. |
+
+When a repair is accepted, move its normal desired-behavior witness into the
+mandatory `*.spec.ts` suite (removing the separate command if redundant), include
+positive, negative and persistence assertions, update this inventory, and rerun
+`npm run check` plus `npm run test:journeys` on a fresh checkout. Do not add
+`test.fail`, skips, inverted defect assertions or a separate “green” bypass.
+The combined baseline acceptance must be rerun even after its individual parts
+have passed. Native and human evidence cannot be inferred from the common web
+command.

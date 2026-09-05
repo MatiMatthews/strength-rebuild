@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
+import { startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
 test('production plan and completed set survive reopening', async ({ page, context }, info) => {
@@ -15,25 +16,13 @@ test('production plan and completed set survive reopening', async ({ page, conte
       await route.fulfill({ response, body });
     });
   }
-  await page.goto('/plan');
-  await expect(page.getByTestId('plan-screen')).toBeVisible();
-  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-  await expect(page.getByText('Todavía no hay ciclos', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
-  await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
-  await page.getByRole('button', { name: 'Activar plan confirmado', exact: true }).click();
-  await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Revisar preparación para entrenar', exact: true }).click();
-  await page.getByLabel('Dolor de 0 a 2, estable', { exact: true }).click();
-  await page.getByRole('button', { name: 'Confirmar preparación', exact: true }).click();
-  await expect(page.getByTestId('workout-screen')).toBeVisible();
+  await startSyntheticWorkout(page);
   await page.getByLabel('Carga de la serie 1', { exact: true }).fill('0');
   await page.getByLabel('Repeticiones de la serie 1', { exact: true }).fill('8');
   await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Synthetic persistence smoke');
   await page.getByRole('button', { name: 'Completar serie 1', exact: true }).click();
   await expect(page.getByText('COMPLETADA', { exact: true })).toBeVisible();
-  await expect.poll(async () => (await readPersistence(page, info)).sets).toEqual([
+  await expect.poll(async () => (await readPersistence(page, info)).sets, { message: 'Canonical completed-set values must persist' }).toEqual([
     { load: '0', reps: '8', notes: 'Synthetic persistence smoke', disposition: 'COMPLETED' },
   ]);
   const before = await readPersistence(page, info);
@@ -59,6 +48,7 @@ test('production plan and completed set survive reopening', async ({ page, conte
     await reopened.getByRole('button', { name: 'Confirmar preparación', exact: true }).click();
   }
   await expect(reopened.getByTestId('workout-screen')).toBeVisible();
+  await expect(reopened.getByLabel('Carga de la serie 1', { exact: true })).toHaveValue('0');
   await expect(reopened.getByLabel('Repeticiones de la serie 1', { exact: true })).toHaveValue('8');
   await expect(reopened.getByLabel('Notas de la serie 1', { exact: true })).toHaveValue('Synthetic persistence smoke');
   await expect(reopened.getByText('COMPLETADA', { exact: true })).toBeVisible();

@@ -23,7 +23,8 @@
     "verify:expo-compatibility": "node scripts/verify-expo-compatibility.cjs",
     "verify:advisories": "node scripts/verify-advisories.mjs",
     "test:journeys": "playwright test",
-    "test:journeys:mutations": "node scripts/prove-journey-faults.cjs"
+    "test:journeys:mutations": "node scripts/prove-journey-faults.cjs",
+    "test:journeys:witness:next-workout": "JOURNEY_WITNESS=next-workout playwright test --output test-results/next-workout-witness"
   },
   "dependencies": {
     "@noble/ciphers": "1.3.0",
