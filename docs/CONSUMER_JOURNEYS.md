@@ -42,6 +42,12 @@ Today asking for review without a reachable workout action. Evidence is under
 This is an observed defect, not a passing or expected-failure test. No fixture
 injects the proposal, bypasses safety, or modifies personal data.
 
+The requirement activation journey selects exact bench press, horizontal push and
+power through Settings, creates a named preview, then independently reads every
+stored session for the three resolved requirement kinds and valid rep/set targets.
+Activation and a new browser page must preserve the exact template and session
+prescriptions. This browser coverage does not replace native or legacy-repair acceptance.
+
 ## Mutation coverage
 
 The proof command now makes one disposable source/export copy per fault and

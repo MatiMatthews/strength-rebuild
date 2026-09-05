@@ -52,3 +52,49 @@ test('requirement fields reject invalid drafts without changing saved settings o
   await expect(reopened.getByLabel('Restricciones activas', { exact: true })).toHaveValue('lumbar');
   expect(await readPersistence(reopened, info)).toEqual(accepted);
 });
+
+test('chosen requirement kinds retain catalog prescriptions from preview through activation and reopen', async ({ page, context }, info) => {
+  await page.goto('/settings');
+  const choices = ['Press banca', 'horizontal-push', 'power'];
+  for (const [index, choice] of choices.entries()) {
+    await page.getByLabel(`Elegir ${choice} para requisito ${index + 1}`, { exact: true }).click();
+  }
+  await page.getByLabel('Restricciones activas', { exact: true }).fill('lumbar');
+  await page.getByRole('button', { name: 'Guardar configuración local', exact: true }).click();
+  await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
+  await page.goto('/plan');
+  await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
+  await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
+  await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
+  for (const name of ['Press banca', 'Salto de bajo volumen']) {
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
+  const preview = await readPersistence(page, info);
+  expect(preview.templates).toHaveLength(1);
+  expect(preview.cycles.every(row => row.status === 'READY')).toBe(true);
+  const snapshots = JSON.parse(String(preview.templates[0]!.snapshot_json)) as import('../../src/domain/prescriptions/generator').CyclePrescriptionSnapshot[];
+  for (const cycle of snapshots) for (const week of cycle.weeks) for (const session of week.sessions) {
+    const requested = session.exercises.filter(exercise => ['barbell-bench-press', 'low-volume-jump'].includes(exercise.exerciseId));
+    expect(requested.map(exercise => [exercise.requirement, exercise.exerciseId])).toEqual(expect.arrayContaining([
+      ['EXACT', 'barbell-bench-press'], ['PATTERN', 'barbell-bench-press'], ['CAPABILITY', 'low-volume-jump'],
+    ]));
+    for (const exercise of requested) {
+      expect(exercise.target.sets).toBeGreaterThan(0);
+      expect(exercise.target.reps.min).toBeGreaterThan(0);
+      expect(exercise.target.reps.max).toBeGreaterThanOrEqual(exercise.target.reps.min);
+    }
+  }
+  await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
+  await page.getByRole('button', { name: 'Activar plan confirmado', exact: true }).click();
+  await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
+  const active = await readPersistence(page, info);
+  expect(active.cycles.filter(row => row.status === 'ACTIVE')).toHaveLength(1);
+  expect(active.templates).toEqual(preview.templates);
+  expect(active.sessionSnapshots).toEqual(preview.sessionSnapshots);
+  await page.close();
+  const reopened = await context.newPage();
+  await reopened.goto('/plan');
+  await expect(reopened.getByText('Plan activo', { exact: true })).toBeVisible();
+  expect(await readPersistence(reopened, info)).toEqual(active);
+  await info.attach('preview-and-activation-readback', { body: JSON.stringify({ preview, active }, null, 2), contentType: 'application/json' });
+});
