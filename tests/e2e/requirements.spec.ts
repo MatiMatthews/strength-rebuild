@@ -53,9 +53,13 @@ test('requirement fields reject invalid drafts without changing saved settings o
   expect(await readPersistence(reopened, info)).toEqual(accepted);
 });
 
-test('chosen requirement kinds retain catalog prescriptions from preview through activation and reopen', async ({ page, context }, info) => {
+for (const scenario of [
+  { name: 'original choices', choices: ['Press banca', 'horizontal-push', 'power'], ids: ['barbell-bench-press', 'barbell-bench-press', 'low-volume-jump'], names: ['Press banca', 'Salto de bajo volumen'] },
+  { name: 'multiple compatible candidates', choices: ['Press banca', 'mobility', 'core'], ids: ['barbell-bench-press', 'hip-mobility', 'bird-dog'], names: ['Press banca', 'Movilidad de cadera', 'Bird-dog'] },
+]) {
+test(`chosen requirement kinds retain catalog prescriptions from preview through activation and reopen: ${scenario.name}`, async ({ page, context }, info) => {
   await page.goto('/settings');
-  const choices = ['Press banca', 'horizontal-push', 'power'];
+  const choices = scenario.choices;
   for (const [index, choice] of choices.entries()) {
     await page.getByLabel(`Elegir ${choice} para requisito ${index + 1}`, { exact: true }).click();
   }
@@ -66,17 +70,14 @@ test('chosen requirement kinds retain catalog prescriptions from preview through
   await page.getByRole('button', { name: 'Crear vista previa del ciclo', exact: true }).click();
   await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
   await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
-  for (const name of ['Press banca', 'Salto de bajo volumen']) {
-    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
-  }
   const preview = await readPersistence(page, info);
   expect(preview.templates).toHaveLength(1);
   expect(preview.cycles.every(row => row.status === 'READY')).toBe(true);
   const snapshots = JSON.parse(String(preview.templates[0]!.snapshot_json)) as import('../../src/domain/prescriptions/generator').CyclePrescriptionSnapshot[];
   for (const cycle of snapshots) for (const week of cycle.weeks) for (const session of week.sessions) {
-    const requested = session.exercises.filter(exercise => ['barbell-bench-press', 'low-volume-jump'].includes(exercise.exerciseId));
-    expect(requested.map(exercise => [exercise.requirement, exercise.exerciseId])).toEqual(expect.arrayContaining([
-      ['EXACT', 'barbell-bench-press'], ['PATTERN', 'barbell-bench-press'], ['CAPABILITY', 'low-volume-jump'],
+    const requested = session.exercises.filter(exercise => scenario.ids.includes(exercise.exerciseId));
+    expect(requested.map(exercise => [exercise.requirement, exercise.exerciseId]), 'Chosen requirement kinds must resolve to deterministic catalog IDs').toEqual(expect.arrayContaining([
+      ['EXACT', scenario.ids[0]], ['PATTERN', scenario.ids[1]], ['CAPABILITY', scenario.ids[2]],
     ]));
     for (const exercise of requested) {
       expect(exercise.target.sets).toBeGreaterThan(0);
@@ -84,13 +85,16 @@ test('chosen requirement kinds retain catalog prescriptions from preview through
       expect(exercise.target.reps.max).toBeGreaterThanOrEqual(exercise.target.reps.min);
     }
   }
+  for (const name of scenario.names) {
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
   await page.getByRole('button', { name: /Semana 1 de Reentrada/ }).click();
   await page.getByRole('button', { name: 'Activar plan confirmado', exact: true }).click();
   await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
   const active = await readPersistence(page, info);
   expect(active.cycles.filter(row => row.status === 'ACTIVE')).toHaveLength(1);
   expect(active.templates).toEqual(preview.templates);
-  expect(active.sessionSnapshots).toEqual(preview.sessionSnapshots);
+  expect(active.sessionSnapshots, 'Activation must preserve previewed session prescriptions').toEqual(preview.sessionSnapshots);
   await page.close();
   const reopened = await context.newPage();
   await reopened.goto('/plan');
@@ -98,3 +102,5 @@ test('chosen requirement kinds retain catalog prescriptions from preview through
   expect(await readPersistence(reopened, info)).toEqual(active);
   await info.attach('preview-and-activation-readback', { body: JSON.stringify({ preview, active }, null, 2), contentType: 'application/json' });
 });
+
+}
