@@ -337,6 +337,6 @@ describe('PlanReferenceScreen', () => {
     await waitFor(() => expect(programs.activateCycle).toHaveBeenCalledWith('hypertrophy-draft'));
     expect(view.getByText('Plan activo')).toBeTruthy();
     expect(view.getAllByText('ACTIVO').length).toBeGreaterThan(0);
-    expect(view.getByText('Próxima decisión: revisión semanal')).toBeTruthy();
+    expect(view.getByText('Consulta Hoy para continuar la semana actual.')).toBeTruthy();
   });
 });

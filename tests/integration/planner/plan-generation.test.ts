@@ -320,6 +320,7 @@ describe('plan generation SQLite seam', () => {
     expect(await first.db.getFirstAsync<{ id: string }>("SELECT id FROM cycle WHERE status = 'ACTIVE'")).toEqual({ id: 'hypertrophy-1' });
     const todayBeforeClose = await service.getToday();
     expect(await service.getTodayContext()).toEqual({
+      lifecycle: { id: 'hypertrophy-1', type: 'hypertrophy', status: 'ACTIVE', currentWeekIndex: 1, awaitingConfirmation: false, weeks: [{ index: 1, state: 'active', completedSessions: 0, totalSessions: 3 }] },
       activeSession: false,
       restrictionActive: false,
       reviewRequired: false,

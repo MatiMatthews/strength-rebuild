@@ -40,6 +40,12 @@ for (const [choice, label] of [['ACCEPTED', 'Aceptar propuesta semanal'], ['KEPT
 
   await fixture.close();
   const app = await context.newPage(); await app.goto('/');
+  await app.goto('/plan');
+  await expect(app.getByRole('button', { name: 'Semana 1 de Hipertrofia, 3 sesiones, COMPLETADA', exact: true })).toBeVisible();
+  await expect(app.getByRole('button', { name: 'Semana 2 de Hipertrofia, 3 sesiones, ACTIVA', exact: true })).toBeVisible();
+  await expect(app.getByRole('button', { name: 'Semana 3 de Hipertrofia, 3 sesiones, PENDIENTE', exact: true })).toBeVisible();
+  await expect(app.getByText('SEMANA 2 DE 4 · Hipertrofia', { exact: true })).toBeVisible();
+  await app.goto('/');
   await app.getByRole('button', { name: 'Revisar preparación para entrenar', exact: true }).click();
   await app.getByLabel('Dolor de 0 a 2, estable', { exact: true }).click();
   await app.getByRole('button', { name: 'Confirmar preparación', exact: true }).click();

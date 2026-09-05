@@ -1,4 +1,4 @@
-import type { TodayData } from '@/application/programs/program-service';
+import type { TodayData, CycleLifecycle } from '@/application/programs/program-service';
 
 export type TodayState =
   | { kind: 'empty' }
@@ -6,9 +6,11 @@ export type TodayState =
   | { kind: 'resume'; data: TodayData }
   | { kind: 'restriction'; data: TodayData }
   | { kind: 'no-workout'; nextSessionLabel: string }
-  | { kind: 'review-required' };
+  | { kind: 'review-required'; weekIndex?: number }
+  | { kind: 'cycle-complete' };
 
 type TodaySignals = {
+  lifecycle?: CycleLifecycle | null;
   today: TodayData | null;
   activeSession?: boolean;
   nextSessionLabel?: string;
@@ -18,7 +20,8 @@ type TodaySignals = {
 };
 
 export function deriveTodayState(signals: TodaySignals): TodayState {
-  if (signals.reviewRequired) return { kind: 'review-required' };
+  if (signals.reviewRequired) return { kind: 'review-required', ...(signals.lifecycle?.currentWeekIndex ? { weekIndex: signals.lifecycle.currentWeekIndex } : {}) };
+  if (signals.lifecycle?.awaitingConfirmation) return { kind: 'cycle-complete' };
   if (!signals.today) return { kind: 'empty' };
   if (signals.activeSession) return { kind: 'resume', data: signals.today };
   if (signals.scheduledToday === false) return { kind: 'no-workout', nextSessionLabel: signals.nextSessionLabel ?? 'Próxima sesión' };

@@ -55,7 +55,22 @@ export interface InvalidSessionReference {
   readonly repairable?: boolean;
 }
 
+export interface CycleLifecycle {
+  readonly id: string;
+  readonly type: CyclePrescriptionSnapshot['type'];
+  readonly status: string;
+  readonly currentWeekIndex: number | null;
+  readonly awaitingConfirmation: boolean;
+  readonly weeks: readonly {
+    readonly index: number;
+    readonly state: 'pending' | 'active' | 'review' | 'completed';
+    readonly completedSessions: number;
+    readonly totalSessions: number;
+  }[];
+}
+
 export interface TodayContext {
+  readonly lifecycle: CycleLifecycle | null;
   readonly activeSession: boolean;
   readonly restrictionActive: boolean;
   readonly reviewRequired: boolean;
@@ -137,6 +152,27 @@ export class ProgramService {
           return stored ? JSON.parse(stored.snapshot_json) as TodayData['session'] : session;
         }),
       })) };
+    });
+  }
+
+  /** Lifecycle is relational state, never a mutation of the immutable prescription. */
+  async listCycleLifecycles(): Promise<readonly CycleLifecycle[]> {
+    const rows = await this.db.getAllAsync<{ id: string; kind: CycleLifecycle['type']; status: string; week_index: number; week_status: string; total: number; completed: number }>(
+      `SELECT c.id, c.kind, c.status, w.week_index, w.status AS week_status,
+        COUNT(s.id) AS total, SUM(CASE WHEN s.status IN ('COMPLETED', 'SKIPPED') THEN 1 ELSE 0 END) AS completed
+       FROM cycle c JOIN training_week w ON w.cycle_id = c.id
+       LEFT JOIN session_plan s ON s.training_week_id = w.id
+       GROUP BY c.id, w.id ORDER BY c.rowid, w.week_index`);
+    return [...new Set(rows.map(row => row.id))].map(id => {
+      const weeks = rows.filter(row => row.id === id);
+      const cycle = weeks[0]!;
+      const current = cycle.status === 'ACTIVE' ? weeks.find(week => week.week_status !== 'COMPLETED') : undefined;
+      return { id, type: cycle.kind, status: cycle.status, currentWeekIndex: current?.week_index ?? null,
+        awaitingConfirmation: cycle.status === 'ACTIVE' && !current,
+        weeks: weeks.map(week => ({ index: week.week_index,
+          state: week.week_status === 'COMPLETED' ? 'completed' as const
+            : week === current ? week.week_status === 'REVIEW' ? 'review' as const : 'active' as const : 'pending' as const,
+          completedSessions: week.completed, totalSessions: week.total })) };
     });
   }
 
@@ -347,14 +383,16 @@ export class ProgramService {
   }
 
   async getTodayContext(): Promise<TodayContext> {
-    const [today, active, restrictions, review, pendingReview] = await Promise.all([
+    const [today, active, restrictions, review, pendingReview, lifecycles] = await Promise.all([
       this.getToday(),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM workout_session WHERE status = 'IN_PROGRESS'"),
       this.db.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM active_restriction WHERE active = 1'),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM training_week w JOIN cycle c ON c.id = w.cycle_id WHERE w.status = 'REVIEW' AND c.status = 'ACTIVE'"),
       this.db.getFirstAsync<CountRow>("SELECT COUNT(*) AS count FROM progression_proposal WHERE decision IS NULL AND policy_version NOT IN ('progression-v1', 'weekly-review-v1')"),
+      this.listCycleLifecycles(),
     ]);
     return {
+      lifecycle: lifecycles.find(cycle => cycle.status === 'ACTIVE') ?? null,
       activeSession: (active?.count ?? 0) > 0,
       restrictionActive: (restrictions?.count ?? 0) > 0,
       reviewRequired: (review?.count ?? 0) > 0 || (pendingReview?.count ?? 0) > 0,

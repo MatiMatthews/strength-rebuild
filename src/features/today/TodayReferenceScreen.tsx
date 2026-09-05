@@ -86,8 +86,10 @@ export function TodayReferenceScreen({
     state.kind === "review-required"
       ? [
           "Revisión requerida antes de entrenar",
-          "Revisa el ciclo pendiente antes de iniciar otra sesión.",
+          `Revisa ${state.weekIndex ? `la semana ${state.weekIndex}` : "la semana pendiente"} antes de iniciar otra sesión.`,
         ]
+      : state.kind === "cycle-complete"
+        ? ["Ciclo completado: confirmación pendiente", "Todas las semanas están revisadas. El siguiente ciclo requiere confirmación."]
       : state.kind === "no-workout"
         ? [
             "Hoy no hay entrenamiento",
