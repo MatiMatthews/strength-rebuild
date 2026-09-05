@@ -55,6 +55,18 @@ test('Today identifies an unknown persisted exercise without rewriting the plan 
     await expect(app.getByText('missing-legacy', { exact: true })).toHaveCount(0);
     expect(await readPersistence(app, info)).toEqual(before);
     await app.screenshot({ path: info.outputPath(`today-unknown-${attempt}.png`), fullPage: true });
+    await app.goto('/plan');
+    await app.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1', exact: true }).click();
+    await app.getByLabel('Buscar ejercicio compatible', { exact: true }).fill('Press banca');
+    await app.getByRole('button', { name: 'Ver propuesta Press banca para missing-legacy', exact: true }).click();
+    await expect(app.getByText('Propuesta: Press banca', { exact: true })).toBeVisible();
+    await expect(app.getByText('Carga por definir; no se transfiere la carga del ejercicio desconocido.', { exact: true })).toBeVisible();
+    await expect(app.getByText('Solo vista previa. Tu sesión original sigue intacta.', { exact: true })).toBeVisible();
+    expect(await readPersistence(app, info)).toEqual(before);
+    await app.screenshot({ path: info.outputPath(`legacy-preview-${attempt}.png`), fullPage: true });
+    await app.getByRole('button', { name: 'Cancelar revisión de referencias', exact: true }).click();
+    await expect(app.getByText('Propuesta: Press banca', { exact: true })).toHaveCount(0);
+    expect(await readPersistence(app, info)).toEqual(before);
     await app.close();
   }
 });

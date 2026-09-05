@@ -15,6 +15,7 @@ describe('PlanReferenceScreen', () => {
   it('warns about invalid sessions before expanding weeks and separates recorded work', async () => {
     const programs: PlanPrograms = {
       activateCycle: jest.fn(), createPlan: jest.fn(),
+      previewLegacyReplacement: jest.fn().mockResolvedValue({ exerciseId: 'barbell-bench-press', target: { sets: 3, reps: { min: 3, max: 6 }, rir: { min: 2, max: 3 } } }),
       listCycleSnapshots: jest.fn().mockResolvedValue([]),
       getActiveCycleId: jest.fn().mockResolvedValue('legacy'),
       listInvalidSessionReferences: jest.fn().mockResolvedValue([
@@ -26,6 +27,14 @@ describe('PlanReferenceScreen', () => {
     await view.findByText('Hay ejercicios fuera del catálogo en tu plan guardado.');
     expect(view.getByText('Sesiones sin iniciar que necesitan revisión antes de entrenar: 1.')).toBeTruthy();
     expect(view.getByText('Sesiones iniciadas o cerradas con referencias originales: 1. No se sustituye el trabajo registrado.')).toBeTruthy();
+    await fireEvent.press(view.getByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' }));
+    expect(view.queryByRole('button', { name: 'Revisar referencias de semana 1, sesión 2' })).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Ver propuesta Press banca para missing' }));
+    await view.findByText('Propuesta: Press banca');
+    expect(view.getByText('3 series · 3–6 repeticiones · RIR 2–3')).toBeTruthy();
+    expect(view.getByText('Carga por definir; no se transfiere la carga del ejercicio desconocido.')).toBeTruthy();
+    await fireEvent.press(view.getByRole('button', { name: 'Cancelar revisión de referencias' }));
+    expect(view.queryByText('Propuesta: Press banca')).toBeNull();
     expect(programs.activateCycle).not.toHaveBeenCalled();
     expect(programs.createPlan).not.toHaveBeenCalled();
   });

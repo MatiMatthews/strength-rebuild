@@ -1,4 +1,5 @@
-import type { InvalidSessionReference } from '@/application/programs/program-service';
+import { LegacyReferencePreview } from './LegacyReferencePreview';
+import type { ProgramService, InvalidSessionReference } from '@/application/programs/program-service';
 import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
 import { exerciseCatalog } from '@/data/seeds/exercises';
@@ -18,6 +19,7 @@ import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/fe
 import type { BackupService } from '@/application/export';
 
 export interface PlanPrograms {
+  previewLegacyReplacement?: ProgramService['previewLegacyReplacement'];
   listInvalidSessionReferences?(): Promise<readonly InvalidSessionReference[]>;
   createPlan(requests: readonly CyclePrescriptionRequest[]): Promise<readonly CyclePrescriptionSnapshot[]>;
   listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]>;
@@ -32,6 +34,8 @@ const roleNames: Record<string, string> = { activation: 'Activación', primary: 
 export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, reviews, settingsStore }: { backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
+  const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
+  const [settingsReady, setSettingsReady] = useState(!settingsStore);
   const [weeks, setWeeks] = useState('4');
   const [cycles, setCycles] = useState<readonly CyclePrescriptionSnapshot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -47,7 +51,7 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
     });
     return () => { live = false; };
   }, [programs]);
-  useEffect(() => { if (settingsStore) void settingsStore.load().then(setPlanningSettings); }, [settingsStore]);
+  useEffect(() => { if (settingsStore) void settingsStore.load().then((settings) => { setPlanningSettings(settings); setSettingsReady(true); }); }, [settingsStore]);
   useEffect(() => {
     let live = true;
     if (active && reviews?.isEligible) void reviews.isEligible(active, 1).then((eligible) => { if (live) setReviewEligible(eligible); });
@@ -96,7 +100,9 @@ export function PlanReferenceScreen({ onOpenBackup, onOpenSettings, programs, re
       <FeedbackBanner message="Hay ejercicios fuera del catálogo en tu plan guardado." tone="danger" />
       {invalidSessions.some((session) => session.unstarted) ? <AppText>Sesiones sin iniciar que necesitan revisión antes de entrenar: {invalidSessions.filter((session) => session.unstarted).length}.</AppText> : null}
       {invalidSessions.some((session) => !session.unstarted) ? <AppText>Sesiones iniciadas o cerradas con referencias originales: {invalidSessions.filter((session) => !session.unstarted).length}. No se sustituye el trabajo registrado.</AppText> : null}
+      {settingsReady && programs.previewLegacyReplacement ? invalidSessions.filter((session) => session.unstarted).map((session) => <ActionButton key={session.sessionPlanId} accessibilityLabel={`Revisar referencias de semana ${session.weekIndex}, sesión ${session.dayIndex}`} onPress={() => setReviewing(session)} tone="secondary">Revisar semana {session.weekIndex} · sesión {session.dayIndex}</ActionButton>) : null}
     </Panel> : null}
+    {reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs) }} settings={planningSettings} onCancel={() => setReviewing(null)} /> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />

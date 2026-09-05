@@ -1,6 +1,7 @@
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import {
   generateCycleSequence,
+  generatePrescription,
   type CyclePrescriptionRequest,
   type CyclePrescriptionSnapshot,
 } from '../../domain/prescriptions/generator';
@@ -138,6 +139,21 @@ export class ProgramService {
         weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
         unstarted: row.status === 'PLANNED' && !row.has_workout }] : [];
     });
+  }
+
+  /** An explicit choice is only a preview: never infer identity or transfer a legacy load. */
+  async previewLegacyReplacement(
+    sessionPlanId: string, invalidExerciseId: string, replacementId: string,
+    constraints: Pick<CyclePrescriptionRequest, 'equipment' | 'restrictions'>,
+  ): Promise<TodayData['session']['exercises'][number]> {
+    const reference = (await this.listInvalidSessionReferences()).find((entry) => entry.sessionPlanId === sessionPlanId);
+    if (!reference?.invalidExerciseIds.includes(invalidExerciseId)) throw new Error('La referencia ya no necesita reparación. Vuelve a abrir el plan.');
+    if (!reference.unstarted) throw new Error('La sesión está iniciada o cerrada. Se conserva el trabajo original.');
+    const row = await this.db.getFirstAsync<{ kind: CyclePrescriptionSnapshot['type'] }>('SELECT kind FROM cycle WHERE id = ?', reference.cycleId);
+    if (!row) throw new Error('El ciclo ya no está disponible.');
+    const generated = generatePrescription({ id: 'replacement-preview', type: row.kind, weeks: 1,
+      ...constraints, requirements: [{ kind: 'EXACT', value: replacementId }] });
+    return generated.weeks[0]!.sessions[0]!.exercises.find((exercise) => exercise.exerciseId === replacementId)!;
   }
 
   async getActiveCycleId(): Promise<string | null> {

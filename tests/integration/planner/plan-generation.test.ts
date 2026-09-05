@@ -44,6 +44,15 @@ describe('plan generation SQLite seam', () => {
     const before = await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)));
     const expected = [1, 2, 3].map((day) => ({ cycleId: 'legacy', sessionPlanId: `legacy-week-1-day-${day}`, weekIndex: 1, dayIndex: day,
       invalidExerciseIds: ['missing-flat', 'missing-block'], unstarted: day === 1 }));
+    const preview = await service.previewLegacyReplacement('legacy-week-1-day-1', 'missing-flat', 'barbell-bench-press', { equipment: ['barbell', 'bench'], restrictions: [] });
+    expect(preview.exerciseId).toBe('barbell-bench-press');
+    expect(preview.target.reps).toEqual({ min: 3, max: 6 });
+    expect(preview.calculatedLoad).toBeUndefined();
+    await expect(service.previewLegacyReplacement('legacy-week-1-day-1', 'missing-flat', 'barbell-bench-press', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('compatible');
+    await expect(service.previewLegacyReplacement('legacy-week-1-day-1', 'missing-flat', 'low-volume-jump', { equipment: ['bodyweight'], restrictions: ['sin impacto'] })).rejects.toThrow('compatible');
+    await expect(service.previewLegacyReplacement('legacy-week-1-day-2', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
+    await expect(service.previewLegacyReplacement('legacy-week-1-day-3', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
+    await expect(service.previewLegacyReplacement('legacy-week-1-day-1', 'real-id', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('referencia');
     expect(await service.listInvalidSessionReferences()).toEqual(expected);
     expect(await service.listInvalidSessionReferences()).toEqual(expected);
     expect(await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
