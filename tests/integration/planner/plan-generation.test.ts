@@ -23,6 +23,30 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('persists resolved requirement IDs and rejects an unsatisfied request without changing the active plan', async () => {
+    const path = `${process.env.TMPDIR ?? '/tmp'}/strength-catalog-${process.pid}-${Date.now()}.sqlite`;
+    const first = open(path);
+    await migrateDatabase(first.db);
+    const service = new ProgramService(first.db);
+    await service.createPlan([{ id: 'catalog', type: 'strength', weeks: 1,
+      requirements: [{ kind: 'PATTERN', value: 'horizontal-push' }, { kind: 'CAPABILITY', value: 'power' }] }]);
+    await service.activateCycle('catalog');
+    const before = await first.db.getAllAsync('SELECT * FROM cycle');
+    await expect(service.createPlan([{ id: 'invalid', type: 'strength', weeks: 1,
+      equipment: ['bodyweight'], requirements: [{ kind: 'EXACT', value: 'barbell-bench-press' }] }])).rejects.toThrow('Requisito 1');
+    expect(await first.db.getAllAsync('SELECT * FROM cycle')).toEqual(before);
+    expect(await first.db.getFirstAsync('SELECT COUNT(*) AS count FROM program_template')).toEqual({ count: 1 });
+    first.close();
+    const reopened = open(path);
+    const row = await reopened.db.getFirstAsync<{ snapshot_json: string; status: string }>('SELECT snapshot_json, status FROM cycle WHERE id = ?', 'catalog');
+    expect(row?.status).toBe('ACTIVE');
+    const snapshot = JSON.parse(row!.snapshot_json);
+    const requested = snapshot.weeks[0].sessions[0].blocks.find((block: { role: string }) => block.role === 'core').exercises.slice(-2);
+    expect(requested.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(['barbell-bench-press', 'low-volume-jump']);
+    expect(requested[0].target).toEqual({ sets: 3, reps: { min: 3, max: 6 }, rir: { min: 2, max: 3 }, loadPercent: { min: 75, max: 85 } });
+    reopened.close();
+  });
+
   it('persists hypertrophy, transition, and strength snapshots and restores identical Today data', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-plan-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);

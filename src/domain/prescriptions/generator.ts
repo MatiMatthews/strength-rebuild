@@ -1,3 +1,5 @@
+import { resolveCatalogRequirements } from './catalog-requirements';
+
 export const PRESCRIPTION_POLICY_VERSION = 'cycle-prescription-v1';
 
 export type CyclePrescriptionType = 'hypertrophy' | 'strength' | 'power' | 'transition' | 'reentry';
@@ -119,6 +121,7 @@ function qualityStops(type: CyclePrescriptionType): readonly string[] {
 
 export function generatePrescription(request: CyclePrescriptionRequest): CyclePrescriptionSnapshot {
   validateRequest(request);
+  const resolvedRequirements = resolveCatalogRequirements(request);
   const target = profileByType[request.type];
   const weeks = Array.from({ length: request.weeks }, (_, weekIndex) => ({
     index: weekIndex + 1,
@@ -165,8 +168,13 @@ export function generatePrescription(request: CyclePrescriptionRequest): CyclePr
         if (exerciseId === 'smith-box-squat') return hasEquipment('smith-machine') && hasEquipment('box') && !restricted;
         return true;
       };
-      const requirements = (request.requirements ?? []).map(({ kind, value }) =>
-        makeExercise([value, kind], { braceDemand: 'low', lumbarDemand: 'low' }));
+      const requirements = (request.requirements ?? []).map(({ kind }, index) => {
+        const exercise = resolvedRequirements[index]!;
+        return makeExercise([exercise.id, kind], {
+          braceDemand: exercise.braceDemand, lumbarDemand: exercise.lumbarDemand,
+          ...(exercise.tags.includes('power') ? { power: true, plyometric: exercise.impact !== 'none' } : {}),
+        });
+      });
       const primaryExercises: ExercisePrescription[] = [
         ...(allowed(work.primary) ? [makeExercise(work.primary, { braceDemand: 'moderate', lumbarDemand: 'moderate' })] : []),
         ...requirements.filter(({ requirement }) => requirement === 'EXACT'),
