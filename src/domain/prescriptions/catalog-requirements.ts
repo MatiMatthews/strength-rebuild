@@ -17,10 +17,7 @@ export class CatalogRequirementError extends Error {
 
 /** Resolve user requirements before any plan writes; exact requests never substitute. */
 export function resolveCatalogRequirements(request: CyclePrescriptionRequest): readonly SeedExercise[] {
-  const equipment = request.equipment && new Set(['bodyweight', ...request.equipment.map((item) => equipmentAliases[item] ?? item)]);
-  const input = request.restrictions;
-  const restrictions: readonly string[] = Array.isArray(input) ? input
-    : Object.entries(input ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
+  const compatible = catalogCompatibility(request);
   return (request.requirements ?? []).map(({ kind, value }, index) => {
     const normalized = requirementAliases[`${kind}:${value.trim()}`] ?? value.trim();
     const candidates = exerciseCatalog.filter((exercise) => {
@@ -28,7 +25,23 @@ export function resolveCatalogRequirements(request: CyclePrescriptionRequest): r
       const matches = kind === 'EXACT' ? exercise.id === normalized
         : kind === 'PATTERN' ? exercise.pattern === normalized : exercise.tags.includes(normalized);
       return matches
-        && (!equipment || exercise.equipment.every((item) => equipment.has(item)))
+        && compatible(exercise);
+    }).sort((left, right) => left.id.localeCompare(right.id));
+    if (!candidates.length) {
+      throw new CatalogRequirementError(index, kind, value);
+    }
+    return candidates[0]!;
+  });
+}
+
+/** Shared constraints for requested exercises and generated defaults. */
+export function catalogCompatibility(request: CyclePrescriptionRequest): (exercise: SeedExercise) => boolean {
+  const equipment = request.equipment && new Set(['bodyweight', ...request.equipment.map((item) => equipmentAliases[item] ?? item)]);
+  const input = request.restrictions;
+  const restrictions: readonly string[] = Array.isArray(input) ? input
+    : Object.entries(input ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
+  return (exercise) => {
+    return (!equipment || exercise.equipment.every((item) => equipment.has(item)))
         && restrictions.every((restriction) => {
           if (restriction === 'sin impacto') return exercise.impact === 'none';
           if (restriction === 'lumbar') return exercise.lumbarDemand === 'low';
@@ -36,10 +49,5 @@ export function resolveCatalogRequirements(request: CyclePrescriptionRequest): r
           // Free text cannot safely be interpreted as a supported restriction.
           return false;
         });
-    }).sort((left, right) => left.id.localeCompare(right.id));
-    if (!candidates.length) {
-      throw new CatalogRequirementError(index, kind, value);
-    }
-    return candidates[0]!;
-  });
+  };
 }

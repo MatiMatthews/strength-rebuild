@@ -38,6 +38,29 @@ describe('catalog requirements consumed by prescription generation', () => {
     }
   });
 
+  it.each(['lumbar', 'abdominal', 'sin impacto'])('applies %s to every default block', (restriction) => {
+    const snapshot = generatePrescription({ ...request, type: 'power', restrictions: [restriction] });
+    const exercises = snapshot.weeks.flatMap((week) => week.sessions.flatMap((session) => session.exercises));
+    expect(exercises.length).toBeGreaterThan(0);
+    for (const generated of exercises) {
+      const catalog = exerciseCatalog.find(({ id }) => id === generated.exerciseId)!;
+      expect({ id: catalog.id, value: restriction === 'lumbar' ? catalog.lumbarDemand
+        : restriction === 'abdominal' ? catalog.braceDemand : catalog.impact })
+        .toEqual({ id: catalog.id, value: restriction === 'sin impacto' ? 'none' : 'low' });
+    }
+  });
+
+  it('omits unavailable default equipment while retaining available work and review markers', () => {
+    const snapshot = generatePrescription({ ...request, equipment: ['bodyweight'] });
+    for (const session of snapshot.weeks[0]!.sessions) {
+      expect(session.exercises.length).toBeGreaterThan(0);
+      for (const generated of session.exercises) {
+        expect(exerciseCatalog.find(({ id }) => id === generated.exerciseId)!.equipment).toEqual(['bodyweight']);
+      }
+      expect(session.blocks!.find(({ role }) => role === 'finish-review')!.exercises[0]!.exerciseId).toBe('session-review');
+    }
+  });
+
   it('filters pattern candidates by equipment, including explicit saved aliases', () => {
     expect(requestedExercise('PATTERN', 'horizontal-push', ['dumbbells', 'incline-bench']).exerciseId).toBe('incline-dumbbell-press');
     expect(requestedExercise('EXACT', 'barbell-bench-press', ['Barra', 'Banco']).exerciseId).toBe('barbell-bench-press');

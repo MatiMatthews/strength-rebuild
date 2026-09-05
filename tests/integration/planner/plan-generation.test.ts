@@ -23,6 +23,29 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('persists only available low-brace defaults through activation and reopen', async () => {
+    const path = `${process.env.TMPDIR ?? '/tmp'}/strength-compatible-${process.pid}-${Date.now()}.sqlite`;
+    const first = open(path);
+    await migrateDatabase(first.db);
+    await new ProgramService(first.db).createPlan([{ id: 'compatible', type: 'strength', weeks: 1,
+      equipment: ['bodyweight'], restrictions: ['abdominal'] }]);
+    await new ProgramService(first.db).activateCycle('compatible');
+    first.close();
+    const reopened = open(path);
+    const cycle = await reopened.db.getFirstAsync<{ snapshot_json: string; status: string }>("SELECT snapshot_json, status FROM cycle WHERE id = 'compatible'");
+    expect(cycle!.status).toBe('ACTIVE');
+    const sessions = await reopened.db.getAllAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan ORDER BY id');
+    const expected = [
+      ['bodyweight-activation', 'thoracic-mobility'],
+      ['bodyweight-activation', 'hip-mobility'],
+      ['bodyweight-activation', 'shoulder-mobility', 'bird-dog'],
+    ];
+    for (const workouts of [JSON.parse(cycle!.snapshot_json).weeks[0].sessions, sessions.map((row) => JSON.parse(row.snapshot_json))]) {
+      expect(workouts.map((workout: { exercises: { exerciseId: string }[] }) => workout.exercises.map((exercise) => exercise.exerciseId))).toEqual(expected);
+    }
+    reopened.close();
+  });
+
   it('preserves default squat safety demand in cycle and session snapshots after activation and reopen', async () => {
     const path = `${process.env.TMPDIR ?? '/tmp'}/strength-demands-${process.pid}-${Date.now()}.sqlite`;
     const first = open(path);
