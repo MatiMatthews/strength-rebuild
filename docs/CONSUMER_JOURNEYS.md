@@ -29,18 +29,20 @@ Screenshots, the synthetic SQLite copy and JSON readback remain under ignored
 requires all unmodified consumer journeys to pass. Future accepted consumer behaviors
 accumulate in the mandatory command; unresolved witnesses stay separate.
 
-## Separate next-workout witness
+## Session recommendations and next workout
 
-Run `npm run test:journeys:witness:next-workout` to create/activate a synthetic
-plan and complete every first-session set through normal controls. It reloads
-Plan and Today, independently captures completed workout, session and proposal
-rows, and asserts that the next workout can be prepared and started. The
-unrepaired app exits **1**: first session COMPLETED, two sessions PLANNED, an
-undecided ordinary `progression-v1` hold proposal, no weekly review control, and
-Today asking for review without a reachable workout action. Evidence is under
-`test-results/next-workout-witness/` (SQLite, JSON, screenshots and failure trace).
-This is an observed defect, not a passing or expected-failure test. No fixture
-injects the proposal, bypasses safety, or modifies personal data.
+The cumulative `session-review.spec.ts` completes Monday through production controls,
+resolves accept, keep and reject in separate browser contexts, reloads the app and
+enters Wednesday. Independent SQLite readback verifies the decision and preserved
+completed work; keep/reject also preserve every future prescription. Ordinary
+recommendations remain optional and discoverable. Weekly review remains separate.
+`npm run test:journeys:witness:next-workout` retains the focused continuity diagnostic.
+
+The service integration tests cover legacy pending rows, malformed-context safe exits,
+stale acceptance, duplicate decisions, rollback on audit failure, the actual future
+workout target, and continued readiness/weekly blocking. Acceptance only changes the
+next unstarted matching exercise role with the same prescription. A legacy-repaired
+snapshot, ambiguous match or unavailable context gets an explicit unchanged-plan exit.
 
 The requirement activation journey selects exact bench press, horizontal push and
 power through Settings, creates a named preview, then independently reads every
@@ -80,7 +82,7 @@ accepted end-to-end repair proof yet.
 | --- | --- | --- |
 | Reproducible consumer gates | Combined browser baseline accepted | Fresh locked install/check; production plan/set/reopen, SQLite readback, inspected Chrome captures, all 11 targeted faults detected and separate next-workout red witness. Native and future product outcomes remain pending below. |
 | Valid exercise requirements | Pending | Exact/pattern/capability resolve catalog IDs; equipment/restriction negatives; visible invalid-input recovery; preview and stored IDs, preserve completed legacy records. |
-| Next workout after review | Observed red | Finish first session, reach and persist accept/keep/reject decisions, reopen into next session; genuine safety block remains; Chrome and proposal/session readback. |
+| Next workout after review | Ordinary session decisions covered; mandatory review recovery pending | Finish first session, reach and persist accept/keep/reject decisions, reopen into next session; genuine safety block remains; Chrome and proposal/session readback. |
 | Weekly and cycle transitions | Pending | Full week/cycle via UI; correct week/status, future-only targets, keep/reject negatives, explicit next cycle and deload; reopen and SQLite at transitions. |
 | Reversible set changes | Pending | Cancel omission leaves values/counts/storage unchanged; confirmed reason once; delete confirmation and exact undo; double-submit negatives; Chrome and reopened SQLite. |
 | Corrected history and units | Pending | Any-set correction with immutable original/audit; 60×8 + 60×8 corrected to 55×8 + 60×8 = 920 kg volume; kg/lb boundary conversion, legacy migration idempotence; effective UI/SQLite readback. |

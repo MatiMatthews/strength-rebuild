@@ -1,5 +1,5 @@
 import { ArrowRight, Settings, ShieldAlert } from "lucide-react-native";
-import { useState, type ComponentType } from "react";
+import { useState, type ReactNode, type ComponentType } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
   ReadinessGate,
@@ -27,6 +27,7 @@ import type { TodayState } from "./today-state";
 import { useAppTheme } from "@/design-system/use-app-theme";
 
 type Props = {
+  recommendations?: ReactNode;
   initialReadinessInput?: SafetyInput | null;
   onApplyReadiness?: (input: SafetyInput) => void | Promise<void>;
   onOpenSettings: () => void;
@@ -58,6 +59,7 @@ function exerciseLabel(id: string): string {
 }
 
 export function TodayReferenceScreen({
+  recommendations,
   initialReadinessInput = null,
   onApplyReadiness,
   onOpenSettings,
@@ -101,6 +103,7 @@ export function TodayReferenceScreen({
         />
         <PhaseBand label="ESTADO DE HOY" />
         <BrandContent>
+          {recommendations}
           <View accessibilityLabel={emptyCopy[0]} testID="today-alternate-state" style={styles.alternate}>
             <Text accessibilityRole="header" aria-level={2} style={[styles.display, { color: theme.text }]}>{emptyCopy[0]}</Text>
             <Text style={[styles.body, { color: theme.textMuted }]}>{emptyCopy[1]}</Text>
@@ -124,6 +127,7 @@ export function TodayReferenceScreen({
           total={data.cycle.weeks.length}
         />
         <BrandContent>
+          {recommendations}
           <View testID="session-header" style={styles.sessionHeader}>
             <Text style={[styles.eyebrowDark, { color: theme.textMuted }]}>DÍA {data.dayIndex}</Text>
             <Text

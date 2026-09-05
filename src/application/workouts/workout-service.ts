@@ -376,7 +376,7 @@ export class WorkoutService {
        (id, schema_version, created_at, updated_at, cycle_id, policy_version, inputs_json, output_json)
        VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
       `${draft.id}-progression`, timestamp, timestamp, context.cycle_id, PROGRESSION_POLICY_VERSION,
-      JSON.stringify(input), JSON.stringify(proposal),
+      JSON.stringify({ ...input, sourceWorkoutId: draft.id, sourceSessionPlanId: draft.sessionPlanId }), JSON.stringify(proposal),
     );
   }
 
