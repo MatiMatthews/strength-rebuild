@@ -1,3 +1,4 @@
+import { generatePrescription } from '../../domain/prescriptions/generator';
 import { defaultSettings, resolveTrainingSettings, SAFE_DEMO_PROFILE_ID, validateSettings } from './settings';
 
 describe('local training settings', () => {
@@ -42,5 +43,18 @@ describe('local training settings', () => {
     [{ ...defaultSettings, requirements: [] }, 'requisito'],
   ])('rejects invalid configuration', (settings, message) => {
     expect(validateSettings(settings)).toEqual({ success: false, message: expect.stringContaining(message) });
+  });
+});
+
+
+describe('catalog-valid settings', () => {
+  it('creates a preview from fresh defaults', () => {
+    expect(() => generatePrescription({ equipment: defaultSettings.equipment, requirements: defaultSettings.requirements, id: 'fresh', type: 'strength', weeks: 1 })).not.toThrow();
+  });
+  it('rejects ambiguous saved requirements without changing the input', () => {
+    const saved = { ...defaultSettings, requirements: [{ kind: 'EXACT' as const, value: 'Sentadilla con barra' }] };
+    const before = JSON.stringify(saved);
+    expect(validateSettings(saved)).toMatchObject({ success: false, requirementIndex: 0, message: expect.stringContaining('Requisito 1') });
+    expect(JSON.stringify(saved)).toBe(before);
   });
 });

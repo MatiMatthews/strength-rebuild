@@ -9,6 +9,12 @@ const requirementAliases: Readonly<Record<string, string>> = {
   'CAPABILITY:Potencia de tren inferior': 'power',
 };
 
+export class CatalogRequirementError extends Error {
+  constructor(readonly requirementIndex: number, kind: string, value: string) {
+    super(`Requisito ${requirementIndex + 1} (${kind}: ${value}): elige una opción del catálogo compatible con tu equipo y restricciones.`);
+  }
+}
+
 /** Resolve user requirements before any plan writes; exact requests never substitute. */
 export function resolveCatalogRequirements(request: CyclePrescriptionRequest): readonly SeedExercise[] {
   const equipment = request.equipment && new Set(['bodyweight', ...request.equipment.map((item) => equipmentAliases[item] ?? item)]);
@@ -32,7 +38,7 @@ export function resolveCatalogRequirements(request: CyclePrescriptionRequest): r
         });
     }).sort((left, right) => left.id.localeCompare(right.id));
     if (!candidates.length) {
-      throw new Error(`Requisito ${index + 1} (${kind}: ${value}): elige una opción del catálogo compatible con tu equipo y restricciones.`);
+      throw new CatalogRequirementError(index, kind, value);
     }
     return candidates[0]!;
   });
