@@ -23,6 +23,9 @@ export interface ReadinessInput extends SafetyInput {
   readonly reproducedByBraceCoughOrSneeze: boolean;
 }
 export interface PersistedReadiness {
+  readonly input?: ReadinessInput;
+  readonly explanation?: string;
+  readonly result?: SafetyResult;
   readonly policyVersion: string;
   readonly sessionPlanId: string;
   readonly decidedAt: string;
@@ -37,6 +40,13 @@ type SessionPlanRow = { id: string };
 type HistoryRow = { id: string; prescribed_snapshot_json: string; actual_snapshot_json: string; completed_at: string };
 type ProgressionContextRow = { cycle_id: string; snapshot_json: string };
 type CompletedActualRow = { id: string; actual_snapshot_json: string };
+
+function validReadinessInput(input: ReadinessInput): boolean {
+  return !(!input || !['stable', 'increasing', 'acute'].includes(input.painTrend)
+      || !['lumbar', 'abdominal', 'other'].includes(input.region) || typeof input.reproducedByBraceCoughOrSneeze !== 'boolean'
+      || ['techniqueChanged', 'persistsAfterModification', 'abdominalRestrictionActive'].some(key => key in input && typeof input[key as keyof ReadinessInput] !== 'boolean')
+      || (input.warningFlags !== undefined && (!Array.isArray(input.warningFlags) || input.warningFlags.some(flag => !['NEUROLOGICAL', 'SYSTEMIC'].includes(flag)))));
+}
 
 function numeric(value: string | number | undefined, fallback = 0): number {
   const parsed = typeof value === 'number' ? value : Number(String(value ?? '').replace(',', '.'));
@@ -58,6 +68,7 @@ function executableExercises(session: TodayData['session']): { exercise: Prescri
 }
 
 export class WorkoutService {
+  private readinessBusy = false;
   private readonly repository: WorkoutRepository;
   private readonly settings: SettingRepository;
   constructor(private readonly db: RepositoryDatabase, repository?: WorkoutRepository, private readonly now = () => new Date().toISOString(), private readonly createId = () => `workout-${Date.now()}`) {
@@ -67,6 +78,8 @@ export class WorkoutService {
 
   async applyReadiness(today: TodayData, input: ReadinessInput): Promise<PersistedReadiness> {
     if (!today.sessionPlanId) throw new Error('Readiness requires a planned session');
+    if (!validReadinessInput(input)) throw new Error('Preparación no válida. Revisa tu selección.');
+    if (this.readinessBusy) throw new Error('Ya se está guardando la preparación.');
     const result = evaluateSafety(input);
     const sessionStatus: PersistedReadiness['sessionStatus'] = result.reviewRequired
       ? 'REVIEW_REQUIRED'
@@ -83,6 +96,9 @@ export class WorkoutService {
           ? ['Entrada al entrenamiento bloqueada']
           : [];
     const decision: PersistedReadiness = {
+      input: JSON.parse(JSON.stringify(input)) as ReadinessInput,
+      explanation: result.explanation,
+      result,
       policyVersion: 'safety-v2.1',
       sessionPlanId: today.sessionPlanId,
       decidedAt: this.now(),
@@ -92,12 +108,38 @@ export class WorkoutService {
       sessionStatus,
       reviewRequired: result.reviewRequired,
     };
-    await this.settings.save({ id: `readiness-${today.sessionPlanId}`, key: this.readinessKey(today.sessionPlanId), value: decision });
-    return decision;
+    this.readinessBusy = true;
+    let saved = decision;
+    try {
+      await this.db.withTransactionAsync(async () => {
+        const current = await this.db.getFirstAsync<{ id: string }>("SELECT s.id FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id WHERE c.status = 'ACTIVE' AND w.status = 'PLANNED' AND s.status = 'PLANNED' ORDER BY w.week_index, s.day_index LIMIT 1");
+        if (current?.id !== today.sessionPlanId) throw new Error('La sesión cambió. Vuelve a Hoy para revisar la preparación vigente.');
+        const previous = await this.getReadiness(today.sessionPlanId!);
+        if (previous?.input && JSON.stringify(previous.input) === JSON.stringify(decision.input)) { saved = previous; return; }
+        if (previous && (!this.validReadiness(previous, today.sessionPlanId!) || ['PATTERN_STOPPED', 'ABORTED', 'REVIEW_REQUIRED'].includes(previous.sessionStatus))) throw new Error('La preparación guardada requiere revisión; otra selección no elimina el bloqueo.');
+        const count = await this.db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM decision_log WHERE decision_type = 'READINESS'");
+        await this.db.runAsync(`INSERT INTO decision_log (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
+          VALUES (?, 1, ?, ?, 'READINESS', 'safety-v2.1', ?, ?, 1, ?)`,
+          `readiness-${today.sessionPlanId}-${(count?.count ?? 0) + 1}`, decision.decidedAt, decision.decidedAt,
+          JSON.stringify({ previous, input: decision.input }), JSON.stringify(decision), decision.decidedAt);
+        await this.settings.save({ id: `readiness-${today.sessionPlanId}`, key: this.readinessKey(today.sessionPlanId!), value: decision });
+      });
+      return saved;
+    } finally { this.readinessBusy = false; }
   }
 
   async getReadiness(sessionPlanId: string): Promise<PersistedReadiness | null> {
-    return (await this.settings.get<PersistedReadiness>(this.readinessKey(sessionPlanId)))?.value ?? null;
+    const setting = await this.settings.get<PersistedReadiness>(this.readinessKey(sessionPlanId));
+    if (!setting) return null;
+    if (!this.validReadiness(setting.value, sessionPlanId) || !Array.isArray(setting.value.appliedChanges)
+      || setting.value.appliedChanges.some(change => typeof change !== 'string')
+      || !['lumbar', 'abdominal', 'other'].includes(setting.value.affectedPattern)) throw new Error('La preparación guardada no se puede verificar. Se conserva el registro original.');
+    if (setting.value.input) {
+      if (!validReadinessInput(setting.value.input)) throw new Error('La entrada guardada no se puede verificar.');
+      const result = evaluateSafety(setting.value.input);
+      if (result.disposition !== setting.value.disposition || result.reviewRequired !== setting.value.reviewRequired) throw new Error('La preparación guardada no coincide con su resultado.');
+    }
+    return setting.value;
   }
 
   async startOrResume(today: TodayData | TodayData['session']): Promise<WorkoutDraft> {

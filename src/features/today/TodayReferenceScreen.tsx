@@ -21,6 +21,7 @@ import {
   spacing,
   typography,
 } from "@/design-system/v2.2/tokens";
+import type { PersistedReadiness, ReadinessInput } from '@/application/workouts/workout-service';
 import type { SafetyInput } from "@/domain/safety";
 import { exerciseCatalog } from "@/data/seeds/exercises";
 import type { TodayState } from "./today-state";
@@ -28,8 +29,9 @@ import { useAppTheme } from "@/design-system/use-app-theme";
 
 type Props = {
   recommendations?: ReactNode;
+  savedReadiness?: PersistedReadiness | null;
   initialReadinessInput?: SafetyInput | null;
-  onApplyReadiness?: (input: SafetyInput) => void | Promise<void>;
+  onApplyReadiness?: (input: ReadinessInput) => void | PersistedReadiness | Promise<void | PersistedReadiness>;
   onOpenSettings: () => void;
   onOpenReview?: () => void;
   onStartWorkout: () => void;
@@ -62,6 +64,7 @@ function exerciseLabel(id: string): string {
 export function TodayReferenceScreen({
   recommendations,
   initialReadinessInput = null,
+  savedReadiness = null,
   onApplyReadiness,
   onOpenSettings,
   onOpenReview,
@@ -93,7 +96,7 @@ export function TodayReferenceScreen({
             "Crea y confirma un ciclo para ver aquí tu próxima sesión.",
           ];
   const enterWorkout =
-    state.kind === "resume" ? onStartWorkout : () => setGateOpen(true);
+    state.kind === "resume" && !savedReadiness ? onStartWorkout : () => setGateOpen(true);
   if (!data)
     return (
       <Screen testID={`today-${state.kind}`}>
@@ -224,9 +227,10 @@ export function TodayReferenceScreen({
         </BrandContent>
       </>
       <Readiness
-        key={initialReadinessInput ? JSON.stringify(initialReadinessInput) : 'empty-readiness'}
+        key={savedReadiness ? JSON.stringify(savedReadiness) : initialReadinessInput ? JSON.stringify(initialReadinessInput) : 'empty-readiness'}
+        savedDecision={savedReadiness}
         initialInput={initialReadinessInput}
-        visible={gateOpen || (Boolean(initialReadinessInput) && !persistedReadinessDismissed)}
+        visible={gateOpen || ((Boolean(initialReadinessInput) || Boolean(savedReadiness)) && !persistedReadinessDismissed)}
         onClose={() => { setGateOpen(false); setPersistedReadinessDismissed(true); }}
         {...(onApplyReadiness ? { onDecision: onApplyReadiness } : {})}
         onReady={async () => {

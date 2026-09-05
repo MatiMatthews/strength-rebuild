@@ -11,7 +11,7 @@ import { markWorkoutNavigation } from '@/features/navigation/workout-navigation-
 import { DataFailureScreen } from '@/features/resilience/DataFailureScreen';
 import { useLocalSearchParams } from 'expo-router';
 import { SessionReviewPanel } from '@/features/review/SessionReviewPanel';
-import type { SafetyInput } from '@/domain/safety';
+import type { PersistedReadiness } from '@/application/workouts/workout-service';
 
 export default function TodayRoute() {
   const router = useRouter() as { push(href: Href | '/settings'): void };
@@ -22,11 +22,12 @@ export default function TodayRoute() {
     ? new URLSearchParams(window.location.search).get('srScenario') ?? undefined
     : undefined;
   const requestedScenario = webScenario ?? srScenario;
+  const [loadFailed, setLoadFailed] = useState(false);
   const [revision, setRevision] = useState(0);
   const onReviewChanged = useCallback(() => setRevision(value => value + 1), []);
   const [scenarioReady, setScenarioReady] = useState(false);
   const [state, setState] = useState<TodayState>({ kind: 'empty' });
-  const [persistedReadiness, setPersistedReadiness] = useState<SafetyInput | null>(null);
+  const [persistedReadiness, setPersistedReadiness] = useState<PersistedReadiness | null>(null);
   const navigateToWorkout = useCallback(() => { markWorkoutNavigation(); router.push('/workout'); }, [router]);
   useEffect(() => {
     if (Platform.OS !== 'web' || !requestedScenario || typeof document === 'undefined') return;
@@ -38,6 +39,7 @@ export default function TodayRoute() {
   }, [requestedScenario]);
   useFocusEffect(useCallback(() => {
     let live = true;
+    setLoadFailed(false);
     programs.getTodayContext().then(async (context) => {
       const decision = context.today?.sessionPlanId
         ? await workouts.getReadiness(context.today.sessionPlanId)
@@ -48,17 +50,14 @@ export default function TodayRoute() {
         restrictionActive: context.restrictionActive || decision?.sessionStatus === 'MODIFIED',
         reviewRequired: context.reviewRequired,
       }));
-      setPersistedReadiness(!decision || context.activeSession ? null
-        : decision.reviewRequired ? { pain: 1, painTrend: 'stable', warningFlags: ['NEUROLOGICAL'] }
-          : decision.sessionStatus === 'PATTERN_STOPPED' ? { pain: 5, painTrend: 'increasing' }
-            : decision.sessionStatus === 'MODIFIED' ? { pain: 3, painTrend: 'stable', techniqueChanged: true }
-              : { pain: 1, painTrend: 'stable' });
-    });
+      setPersistedReadiness(context.activeSession && decision && ['READY', 'MODIFIED'].includes(decision.sessionStatus) ? null : decision);
+    }).catch(() => { if (live) setLoadFailed(true); });
     return () => { live = false; };
   }, [programs, requestedScenario, scenarioReady, workouts, revision]));
+  if (loadFailed) return <DataFailureScreen onRetry={() => setRevision(value => value + 1)} />;
   if (requestedScenario === 'data-failure' && scenarioReady) return <DataFailureScreen onRetry={() => setScenarioReady(false)} />;
-  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen onOpenReview={() => router.push('/weekly-review' as Href)} recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} initialReadinessInput={persistedReadiness} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
+  return <FocusedScene accessibilityElementsHidden={isFocused ? false : true} focused={isFocused} importantForAccessibility={isFocused ? 'auto' : 'no-hide-descendants'}><TodayReferenceScreen onOpenReview={() => router.push('/weekly-review' as Href)} recommendations={<SessionReviewPanel key={`${isFocused}`} reviews={sessionReviews} onChanged={onReviewChanged} />} savedReadiness={persistedReadiness} initialReadinessInput={persistedReadiness?.input ?? null} readinessGate={ReadinessGate} state={state} onOpenSettings={() => router.push('/settings')} onApplyReadiness={async (input) => {
     if (!('data' in state)) throw new Error('No planned session is available for readiness');
-    await workouts.applyReadiness(state.data, { ...input, region: input.abdominalRestrictionActive ? 'abdominal' : 'other', reproducedByBraceCoughOrSneeze: false });
+    return workouts.applyReadiness(state.data, input);
   }} onStartWorkout={navigateToWorkout} /></FocusedScene>;
 }
