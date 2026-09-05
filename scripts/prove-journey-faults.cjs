@@ -67,9 +67,16 @@ const activationFaults = [
     expected: 'Activation must preserve previewed session prescriptions',
   },
 ].map(fault => ({ ...fault, test: 'requirements.spec.ts' }));
+const rejectionFaults = ['cycle', 'session'].map(location => ({
+  name: `activation-${location}-validation-bypass`,
+  file: 'src/application/programs/program-service.ts', test: 'activation-rejection.spec.ts',
+  grep: `unknown ${location} exercise`,
+  anchor: '      await this.validateActivation(id);', replacement: '      // Deliberately bypass validation in this disposable mutant.',
+  expected: 'Invalid persisted exercises must block activation',
+}));
 const group = process.argv[2];
-if (group && !['--catalog', '--activation'].includes(group)) throw new Error(`Unknown fault group: ${group}`);
-const selectedFaults = group === '--catalog' ? catalogFaults : group === '--activation' ? activationFaults : [...faults, ...catalogFaults, ...activationFaults];
+if (group && !['--catalog', '--activation', '--rejection'].includes(group)) throw new Error(`Unknown fault group: ${group}`);
+const selectedFaults = group === '--catalog' ? catalogFaults : group === '--activation' ? activationFaults : group === '--rejection' ? rejectionFaults : [...faults, ...catalogFaults, ...activationFaults, ...rejectionFaults];
 const results = [];
 for (const fault of selectedFaults) {
   // Every mutant owns a disposable source/export copy. Never patch the working
