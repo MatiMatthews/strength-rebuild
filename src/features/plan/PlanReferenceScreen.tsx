@@ -1,5 +1,5 @@
 import { LegacyReferencePreview } from './LegacyReferencePreview';
-import type { ProgramService, InvalidSessionReference } from '@/application/programs/program-service';
+import type { ProgramService, InvalidSessionReference, CycleLifecycle } from '@/application/programs/program-service';
 import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
 import { exerciseCatalog } from '@/data/seeds/exercises';
@@ -19,6 +19,7 @@ import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/fe
 import type { BackupService } from '@/application/export';
 
 export interface PlanPrograms {
+  listCycleLifecycles?: ProgramService['listCycleLifecycles'];
   prepareLegacyRepair?: ProgramService['prepareLegacyRepair'];
   applyLegacyRepair?: ProgramService['applyLegacyRepair'];
   previewLegacyReplacement?: ProgramService['previewLegacyReplacement'];
@@ -42,6 +43,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [weeks, setWeeks] = useState('4');
   const [cycles, setCycles] = useState<readonly CyclePrescriptionSnapshot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [lifecycles, setLifecycles] = useState<readonly CycleLifecycle[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; tone: 'danger' | 'success' } | null>(null);
@@ -56,15 +58,17 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       setPendingWeeks([]);
       if (!focused) return;
       // Actions consume one completed focus refresh, never mixed old and new inputs.
-      const [storedCycles, activeId, invalid, settings] = await Promise.all([
+      const [storedCycles, activeId, invalid, settings, lifecycle] = await Promise.all([
         programs.listCycleSnapshots(), programs.getActiveCycleId(),
         programs.listInvalidSessionReferences?.() ?? Promise.resolve([]),
         settingsStore?.load() ?? Promise.resolve(defaultSettings),
+        programs.listCycleLifecycles?.() ?? Promise.resolve([]),
       ]);
       if (!live) return;
       setCycles(!activeId && previewIds.current
         ? storedCycles.filter((cycle) => previewIds.current!.includes(cycle.id)) : storedCycles);
       setActive(activeId);
+      setLifecycles(lifecycle);
       setInvalidSessions(invalid);
       setPlanningSettings(settings);
       setFeedback(null);
@@ -121,11 +125,17 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
     try {
       await programs.activateCycle(first.id);
       setActive(first.id);
+      setLifecycles(await programs.listCycleLifecycles?.() ?? []);
     } catch (error) {
       setFeedback({ message: error instanceof Error ? error.message : 'No se pudo activar el plan. Revisa la vista previa e inténtalo de nuevo.', tone: 'danger' });
     } finally { setBusy(false); }
   };
 
+  const activeCycle = cycles.find(cycle => cycle.id === active);
+  const lifecycle = lifecycles.find(cycle => cycle.id === active);
+  const currentWeek = lifecycle?.currentWeekIndex ?? (lifecycle ? null : activeCycle?.weeks[0]?.index);
+  const phaseLabel = lifecycle?.awaitingConfirmation ? 'Ciclo completado: confirmación pendiente'
+    : `SEMANA ${currentWeek ?? '—'} DE ${activeCycle?.weeks.length ?? 0} · ${names[activeCycle?.type ?? 'strength']}`;
   return <Screen testID="plan-screen">
     <AppMasthead context="Crea el plan sin conexión. Nada se activa sin tu confirmación." title="PLAN" />
     {pendingWeeks.length > 0 && onOpenReview ? <Panel><AppText>Semana {pendingWeeks[0]!.weekIndex}: revisión pendiente antes de continuar.</AppText><ActionButton onPress={onOpenReview}>Abrir revisión semanal</ActionButton></Panel> : null}
@@ -144,7 +154,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
         setFeedback({ message: 'Referencia reparada. Se conserva el original y tu elección queda registrada.', tone: 'success' });
       }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
     {active && feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
-    {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
+    {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand {...(currentWeek ? { current: currentWeek } : {})} label={phaseLabel} total={activeCycle?.weeks.length ?? 1} /><AppText variant="bodyStrong">{lifecycle?.awaitingConfirmation ? 'Todas las semanas están revisadas. El siguiente ciclo requiere confirmación.' : pendingWeeks.length ? 'Próxima decisión: revisión semanal' : 'Consulta Hoy para continuar la semana actual.'}</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />
       <AppText color="muted" variant="caption">Después se prepara Fuerza · 4 semanas. La descarga intermedia no se puede eliminar.</AppText>
@@ -157,7 +167,8 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>
       {cycles.length === 0 ? <View style={styles.emptyRail}><AppText variant="bodyStrong">Todavía no hay ciclos</AppText><AppText color="muted">Configura la duración para crear una línea de tiempo persistente.</AppText></View> : cycles.flatMap((cycle) => cycle.weeks.map((week) => ({ cycle, week }))).map(({ cycle, week }) => {
         const key = `${cycle.id}-${week.index}`; const open = expanded === key;
-        const state = active === cycle.id ? 'ACTIVO' : active ? 'LISTO' : 'BORRADOR';
+        const weekState = lifecycles.find(item => item.id === cycle.id)?.weeks.find(item => item.index === week.index);
+        const state = weekState ? ({ pending: 'PENDIENTE', active: 'ACTIVA', review: 'REVISIÓN PENDIENTE', completed: 'COMPLETADA' } as const)[weekState.state] : active === cycle.id && week.index === cycle.weeks[0]?.index ? 'ACTIVO' : active ? 'PENDIENTE' : 'BORRADOR';
         const transition = cycle.type === 'transition';
         const rowText = transition ? palette.ink : theme.text;
         const rowMuted = transition ? palette.steel : theme.textMuted;
