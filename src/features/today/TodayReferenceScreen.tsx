@@ -29,6 +29,7 @@ import { useAppTheme } from "@/design-system/use-app-theme";
 
 type Props = {
   recommendations?: ReactNode;
+  activeReadiness?: PersistedReadiness | null;
   savedReadiness?: PersistedReadiness | null;
   initialReadinessInput?: SafetyInput | null;
   onApplyReadiness?: (input: ReadinessInput) => void | PersistedReadiness | Promise<void | PersistedReadiness>;
@@ -67,6 +68,7 @@ export function TodayReferenceScreen({
   savedReadiness = null,
   onApplyReadiness,
   onOpenSettings,
+  activeReadiness = null,
   onOpenReview,
   onStartWorkout,
   readinessGate: Readiness = ReadinessGate,
@@ -204,6 +206,7 @@ export function TodayReferenceScreen({
               onAction={enterWorkout}
             />
           </View>
+          {state.kind === "resume" ? <ActionButton tone="secondary" onPress={() => setGateOpen(true)}>Revisar preparación para entrenar</ActionButton> : null}
           <View testID="exercise-run-sheet" style={styles.runSheet}>
             <Text
               accessibilityRole="header"
@@ -227,9 +230,9 @@ export function TodayReferenceScreen({
         </BrandContent>
       </>
       <Readiness
-        key={savedReadiness ? JSON.stringify(savedReadiness) : initialReadinessInput ? JSON.stringify(initialReadinessInput) : 'empty-readiness'}
-        savedDecision={savedReadiness}
-        initialInput={initialReadinessInput}
+        key={activeReadiness ? JSON.stringify(activeReadiness) : savedReadiness ? JSON.stringify(savedReadiness) : initialReadinessInput ? JSON.stringify(initialReadinessInput) : 'empty-readiness'}
+        savedDecision={savedReadiness ?? activeReadiness}
+        initialInput={initialReadinessInput ?? activeReadiness?.input ?? null}
         visible={gateOpen || ((Boolean(initialReadinessInput) || Boolean(savedReadiness)) && !persistedReadinessDismissed)}
         onClose={() => { setGateOpen(false); setPersistedReadinessDismissed(true); }}
         {...(onApplyReadiness ? { onDecision: onApplyReadiness } : {})}

@@ -143,6 +143,8 @@ export function WorkoutReferenceScreen({
     workouts ? null : preview,
   );
   const [error, setError] = useState("");
+  const [savingSet, setSavingSet] = useState(false);
+  const completionLock = useRef(false);
   const [replacing, setReplacing] = useState(false);
   const [showingGuidance, setShowingGuidance] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -172,10 +174,10 @@ export function WorkoutReferenceScreen({
       try {
         if (!workouts.saveDraftSnapshotBeforeProcessStop(latestDraftRef.current)) {
           void workouts.saveDraftSnapshot(latestDraftRef.current)
-            .catch(() => setError("No se pudieron guardar los cambios"));
+            .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios"));
         }
-      } catch {
-        setError("No se pudieron guardar los cambios");
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios");
       }
     });
     return () => subscription.remove();
@@ -203,16 +205,16 @@ export function WorkoutReferenceScreen({
       );
   }, [programs, requireReadiness, workouts]);
   useEffect(() => {
-    if (!draft || !workouts || savingOmission || savingDeletion) return;
+    if (!draft || !workouts || savingOmission || savingDeletion || savingSet || error) return;
     const timer = setTimeout(
       () =>
         void workouts
           .saveDraftSnapshot(latestDraftRef.current ?? draft)
-          .catch(() => setError("No se pudieron guardar los cambios")),
+          .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios")),
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts, savingOmission, savingDeletion]);
+  }, [draft, workouts, savingOmission, savingDeletion, savingSet, error]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -249,9 +251,11 @@ export function WorkoutReferenceScreen({
     field: "load" | "reps" | "rir" | "notes",
     value: string,
   ) => {
+      const current = latestDraftRef.current;
+      if (!current) return;
       const next = {
-          ...draft,
-          exercises: draft.exercises.map((item, itemIndex) =>
+          ...current,
+          exercises: current.exercises.map((item, itemIndex) =>
             itemIndex !== exerciseIndex
               ? item
               : {
@@ -278,10 +282,10 @@ export function WorkoutReferenceScreen({
           if (!workouts.saveDraftSnapshotBeforeProcessStop(next)) {
             void workouts
               .saveDraftSnapshot(next)
-              .catch(() => setError("No se pudieron guardar los cambios"));
+              .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios"));
           }
-        } catch {
-          setError("No se pudieron guardar los cambios");
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios");
         }
       }
       setDraft(next);
@@ -789,38 +793,27 @@ export function WorkoutReferenceScreen({
               <View style={styles.commands}>
                 <ActionButton
                   accessibilityLabel={`Completar serie ${index + 1}`}
-                  disabled={set.pain >= 5}
-                  onPress={() => {
-                    setDraft(
-                      (current) =>
-                        current &&
-                        (workouts
-                          ? workouts.completeSet(current, exerciseIndex, index)
-                          : {
-                              ...current,
-                              exercises: current.exercises.map(
-                                (item, itemIndex) =>
-                                  itemIndex !== exerciseIndex
-                                    ? item
-                                    : {
-                                        ...item,
-                                        sets: item.sets.map(
-                                          (candidate, setIndex) =>
-                                            setIndex === index
-                                              ? {
-                                                  ...candidate,
-                                                  completed: true,
-                                                  skipped: false,
-                                                  disposition: "COMPLETED",
-                                                  skipReason: undefined,
-                                                }
-                                              : candidate,
-                                        ),
-                                      },
-                              ),
-                            }),
-                    );
-                    void playContractedHaptic("setCompleted");
+                  disabled={set.pain >= 5 || savingSet}
+                  onPress={async () => {
+                    if (completionLock.current) return;
+                    const current = latestDraftRef.current;
+                    if (!current) return;
+                    completionLock.current = true;
+                    setSavingSet(true);
+                    try {
+                      const next = workouts
+                        ? await workouts.completeSetAndSave(current, exerciseIndex, index)
+                        : { ...current, exercises: current.exercises.map((item, itemIndex) => itemIndex !== exerciseIndex ? item : {
+                          ...item, sets: item.sets.map((candidate, setIndex) => setIndex !== index ? candidate : {
+                            ...candidate, completed: true, skipped: false, disposition: 'COMPLETED' as const, skipReason: undefined,
+                          }),
+                        }) };
+                      latestDraftRef.current = next;
+                      setDraft(next);
+                      void playContractedHaptic("setCompleted");
+                    } catch (reason) {
+                      setError(reason instanceof Error ? reason.message : "No se pudo guardar la serie. Tu trabajo guardado se conserva.");
+                    } finally { completionLock.current = false; setSavingSet(false); }
                   }}
                   tone={
                     set.disposition === "COMPLETED" ? "primary" : "secondary"

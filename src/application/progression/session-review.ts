@@ -77,7 +77,7 @@ export class SessionReviewService {
       if (!target) unavailable = 'No hay una próxima exposición sin iniciar con la misma prescripción. Puedes mantener el plan.';
     }
     if (output.action === 'repeat_week') unavailable = 'Repetir una semana requiere una revisión semanal; aquí puedes mantener el plan.';
-    const restriction = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM active_restriction');
+    const restriction = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM active_restriction WHERE active = 1');
     if ((restriction?.count ?? 0) > 0 || input.safetyFlagActive) unavailable = 'Hay una restricción de seguridad. Mantener el plan no elimina la preparación ni la restricción.';
     return { id: row.id, exerciseName: exerciseCatalog.find(e => e.id === input.exerciseId)?.name ?? 'Ejercicio de la sesión', reason: reasons[output.action], unavailable,
       before: input.target, after: output.nextTarget, target, fingerprint: JSON.stringify({ row, source, target, unavailable }) };

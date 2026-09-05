@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test';
+import { startSyntheticWorkout } from './setup';
+import { readPersistence } from './persistence';
+
+test('a later saved stop preserves completed work and blocks navigation and cold workout resume', async ({page,context},info) => {
+  await startSyntheticWorkout(page);
+  await page.getByLabel('Notas de la serie 1',{exact:true}).fill('Preserve completed work');
+  await page.getByRole('button',{name:'Completar serie 1',exact:true}).click();
+  await expect.poll(async()=>JSON.parse(String((await readPersistence(page,info)).workouts[0]!.actual_snapshot_json)).exercises[0].sets[0].completed).toBe(true);
+  await page.goto('/');
+  await page.getByRole('button',{name:'Revisar preparación para entrenar',exact:true}).click();
+  await expect(page.getByText('Dolor registrado: 1 de 10 · estable',{exact:true})).toBeVisible();
+  await page.getByLabel('Dolor persiste después de una modificación',{exact:true}).click();
+  await expect(page.getByText('Dolor registrado: 3 de 10 · estable · persiste después de modificar',{exact:true})).toBeVisible();
+  const before = await readPersistence(page,info);
+  const draft = JSON.parse(String(before.workouts[0]!.actual_snapshot_json));
+  expect(draft.exercises[0].sets[0]).toMatchObject({notes:'Preserve completed work',completed:true});
+  expect(draft.exercises[0].sets[1].completed).toBe(false);
+  await page.goto('/workout');
+  await expect(page.getByRole('button',{name:'Completar serie 2',exact:true})).toHaveCount(0);
+  expect((await readPersistence(page,info)).workouts).toEqual(before.workouts);
+  await page.close(); const reopened = await context.newPage();
+  await reopened.goto('/workout');
+  await expect(reopened.getByRole('button',{name:'Completar serie 2',exact:true})).toHaveCount(0);
+  await expect(reopened.getByText('La decisión de preparación bloquea esta sesión',{exact:true})).toBeVisible();
+  const after = await readPersistence(reopened,info);
+  expect(after.workouts).toEqual(before.workouts);
+  expect(after.sessionSnapshots).toEqual(before.sessionSnapshots);
+  expect(after.settings).toEqual(before.settings);
+  await reopened.screenshot({path:info.outputPath('preserved-work-blocked-resume.png'),fullPage:true});
+});

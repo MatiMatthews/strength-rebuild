@@ -99,36 +99,37 @@ export class WorkoutRepository {
       actualSnapshot: row.actual_snapshot_json, completedAt: row.completed_at } : null;
   }
 
-  async updateActualSnapshot(id: string, snapshot: string) {
+  async updateActualSnapshot(id: string, snapshot: string, guard?: { sql: string; params: SqlValue[] }) {
     const result = await this.db.runAsync(
       `UPDATE workout_session SET actual_snapshot_json = ?, updated_at = ?
-       WHERE id = ? AND status <> 'COMPLETED'`, snapshot, this.now(), id,
+       WHERE id = ? AND status <> 'COMPLETED' ${guard?.sql ?? ''}`, snapshot, this.now(), id, ...(guard?.params ?? []),
     );
-    await this.requireMutable(result, id);
+    await this.requireMutable(result, id, Boolean(guard));
   }
 
-  updateActualSnapshotSync(id: string, snapshot: string) {
+  updateActualSnapshotSync(id: string, snapshot: string, guard?: { sql: string; params: SqlValue[] }) {
     if (!this.db.runSync) return false;
     const result = this.db.runSync(
       `UPDATE workout_session SET actual_snapshot_json = ?, updated_at = ?
-       WHERE id = ? AND status <> 'COMPLETED'`, snapshot, this.now(), id,
+       WHERE id = ? AND status <> 'COMPLETED' ${guard?.sql ?? ''}`, snapshot, this.now(), id, ...(guard?.params ?? []),
     );
-    if (result.changes === 0) throw new Error(`Workout ${id} is not mutable`);
+    if (result.changes === 0) throw new Error(guard ? 'La seguridad o el entrenamiento guardado cambió. Vuelve a Hoy para revisar la preparación y las restricciones. Tu trabajo guardado se conserva.' : `Workout ${id} is not mutable`);
     return true;
   }
 
-  async complete(id: string, snapshot: string, completedAt: string) {
+  async complete(id: string, snapshot: string, completedAt: string, guard?: { sql: string; params: SqlValue[] }) {
     const result = await this.db.runAsync(
       `UPDATE workout_session SET status = 'COMPLETED', actual_snapshot_json = ?, completed_at = ?, updated_at = ?
-       WHERE id = ? AND status <> 'COMPLETED'`, snapshot, completedAt, this.now(), id,
+       WHERE id = ? AND status <> 'COMPLETED' ${guard?.sql ?? ''}`, snapshot, completedAt, this.now(), id, ...(guard?.params ?? []),
     );
-    await this.requireMutable(result, id);
+    await this.requireMutable(result, id, Boolean(guard));
   }
 
-  private async requireMutable(result: RunResult, id: string) {
+  private async requireMutable(result: RunResult, id: string, guarded = false) {
     if (result.changes > 0) return;
     const workout = await this.get(id);
     if (!workout) throw new Error(`Workout ${id} does not exist`);
+    if (guarded && workout.status !== 'COMPLETED') throw new Error('La seguridad o el entrenamiento guardado cambió. Vuelve a Hoy para revisar la preparación y las restricciones. Tu trabajo guardado se conserva.');
     throw new Error(`Completed workout ${id} is immutable`);
   }
 }

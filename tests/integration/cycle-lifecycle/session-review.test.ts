@@ -125,3 +125,31 @@ it('keeps weekly reviews and real readiness blocks enforced after a session choi
   expect((await programs.getTodayContext()).reviewRequired).toBe(true);
   sqlite.close();
 });
+
+it.each(['ACCEPTED','KEPT','REJECTED'] as const)('ordinary %s preserves unrelated readiness and resolved restriction evidence', async choice => {
+  const {sqlite,db,reviews,programs} = await fixture();
+  const today = (await programs.getToday())!;
+  const service = new WorkoutService(db);
+  await service.applyReadiness(today,{pain:3,painTrend:'stable',persistsAfterModification:true,region:'lumbar',reproducedByBraceCoughOrSneeze:false});
+  sqlite.exec("INSERT INTO active_restriction (id,schema_version,created_at,updated_at,kind,details_json,active) VALUES ('resolved',1,'now','now','legacy','{}',0)");
+  const readiness = await db.getAllAsync('SELECT * FROM app_setting');
+  const restrictions = await db.getAllAsync('SELECT * FROM active_restriction');
+  const [proposal] = await reviews.listPending(); expect(proposal!.unavailable).toBeNull();
+  await reviews.decide(proposal!,choice);
+  expect(await db.getAllAsync('SELECT * FROM app_setting')).toEqual(readiness);
+  expect(await db.getAllAsync('SELECT * FROM active_restriction')).toEqual(restrictions);
+  await expect(service.startOrResume(today)).rejects.toThrow('bloquea');
+  sqlite.close();
+});
+
+it.each(['KEPT','REJECTED'] as const)('active restrictions deny acceptance and survive %s', async choice => {
+  const {sqlite,db,reviews} = await fixture();
+  sqlite.exec("INSERT INTO active_restriction (id,schema_version,created_at,updated_at,kind,details_json,active) VALUES ('stop',1,'now','now','legacy','{}',1)");
+  const before = await db.getAllAsync('SELECT * FROM active_restriction');
+  const [proposal] = await reviews.listPending(); expect(proposal!.unavailable).toContain('restricción');
+  await expect(reviews.decide(proposal!,'ACCEPTED')).rejects.toThrow();
+  expect(await db.getAllAsync('SELECT * FROM active_restriction')).toEqual(before);
+  await reviews.decide(proposal!,choice);
+  expect(await db.getAllAsync('SELECT * FROM active_restriction')).toEqual(before);
+  sqlite.close();
+});
