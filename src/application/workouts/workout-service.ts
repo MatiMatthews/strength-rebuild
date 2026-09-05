@@ -5,13 +5,15 @@ import { evaluateSafety, type SafetyInput, type SafetyResult } from '../../domai
 import type { ReplacementReason } from '../../domain/substitutions';
 import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput } from '../../domain/progression/propose-progression';
 
+import type { SetDeletion } from './set-deletion';
+
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
 export interface WorkoutSetDraft { load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
 type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['role'];
 type PrescribedExercise = TodayData['session']['exercises'][number];
 export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
 export interface SafetyModification extends SafetyResult { exerciseIndex: number; setIndex: number; recordedAt: string }
-export interface WorkoutDraft { id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
+export interface WorkoutDraft { setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
 export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft }
 export interface HistoryCorrectionInput { workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string }

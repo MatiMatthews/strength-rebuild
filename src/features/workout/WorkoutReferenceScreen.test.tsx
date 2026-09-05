@@ -66,6 +66,36 @@ describe('Workout reference state', () => {
     expect(draft.exercises[0]!.sets[0]!.disposition).toBe('PENDING');
   });
 
+  it('keeps failed deletion available to cancel or retry and locks repeated confirmations', async () => {
+    const set = { load: '60', reps: '8', rir: '2', technique: 'Limpia' as const, pain: 0,
+      notes: 'Original', completed: true, skipped: false, disposition: 'COMPLETED' as const };
+    const draft: WorkoutDraft = { id: 'delete', safetyModifications: [], exercises: [{ exerciseId: 'barbell-bench-press',
+      originalExerciseId: 'barbell-bench-press', requirement: 'EXACT', sets: [{ ...set }, { ...set }] }] };
+    const save = jest.fn().mockResolvedValue(undefined);
+    const workouts = { startOrResume: jest.fn().mockResolvedValue(draft), saveDraftSnapshot: save,
+      canComplete: jest.fn().mockReturnValue(true) } as unknown as WorkoutService;
+    const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
+    const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} programs={programs} workouts={workouts} />);
+    await screen.findByLabelText('Quitar última serie');
+    await fireEvent.press(screen.getByLabelText('Quitar última serie'));
+    save.mockRejectedValueOnce(new Error('disk full'));
+    await fireEvent.press(screen.getByLabelText('Confirmar eliminación'));
+    expect(screen.getByRole('alert')).toHaveTextContent(/No se pudo guardar el cambio/);
+    expect(draft.exercises[0]!.sets).toHaveLength(2);
+    await fireEvent.press(screen.getByLabelText('Cancelar eliminación'));
+    expect(screen.getByLabelText('Carga de la serie 2').props.value).toBe('60');
+    await fireEvent.press(screen.getByLabelText('Quitar última serie'));
+    await fireEvent.press(screen.getByLabelText('Confirmar eliminación'));
+    expect(screen.queryByLabelText('Carga de la serie 2')).toBeNull();
+    save.mockRejectedValueOnce(new Error('disk full'));
+    await fireEvent.press(screen.getByLabelText('Deshacer eliminación'));
+    expect(screen.queryByLabelText('Carga de la serie 2')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent(/No se pudo guardar el cambio/);
+    await fireEvent.press(screen.getByLabelText('Deshacer eliminación'));
+    expect(screen.getByLabelText('Carga de la serie 2').props.value).toBe('60');
+    expect(screen.queryByLabelText('Deshacer eliminación')).toBeNull();
+  });
+
   it('keeps background autosave from overwriting an immediate text checkpoint', () => {
     const source = readFileSync(require.resolve('./WorkoutReferenceScreen'), 'utf8');
     expect(source).toContain('.saveDraftSnapshot(latestDraftRef.current ?? draft)');
@@ -122,6 +152,7 @@ describe('Workout reference state', () => {
     await fireEvent.press(screen.getByLabelText('Añadir serie'));
     expect(screen.getByLabelText('Carga de la serie 4')).toBeOnTheScreen();
     await fireEvent.press(screen.getByLabelText('Quitar última serie'));
+    await fireEvent.press(screen.getByLabelText('Confirmar eliminación'));
     expect(screen.queryByLabelText('Carga de la serie 4')).toBeNull();
     expect(screen.getByTestId('keyboard-avoiding-workout')).toBeOnTheScreen();
   });

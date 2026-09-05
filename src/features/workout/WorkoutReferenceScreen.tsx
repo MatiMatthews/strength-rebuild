@@ -60,6 +60,8 @@ import {
   startTimer,
 } from "@/features/timer/rest-timer";
 
+import { deleteLastSet, undoSetDeletion } from "@/application/workouts/set-deletion";
+
 type Props = {
   onClose: () => void;
   programs?: ProgramService;
@@ -149,6 +151,10 @@ export function WorkoutReferenceScreen({
   const [skipError, setSkipError] = useState("");
   const [savingOmission, setSavingOmission] = useState(false);
   const omissionLock = useRef(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deletionError, setDeletionError] = useState("");
+  const [savingDeletion, setSavingDeletion] = useState(false);
+  const deletionLock = useRef(false);
   const [now, setNow] = useState(0);
   // A restored native route must explicitly transition to its persisted index
   // so the scroll reset runs; otherwise Android can reopen at the pre-kill
@@ -194,7 +200,7 @@ export function WorkoutReferenceScreen({
       );
   }, [programs, requireReadiness, workouts]);
   useEffect(() => {
-    if (!draft || !workouts || savingOmission) return;
+    if (!draft || !workouts || savingOmission || savingDeletion) return;
     const timer = setTimeout(
       () =>
         void workouts
@@ -203,7 +209,7 @@ export function WorkoutReferenceScreen({
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts, savingOmission]);
+  }, [draft, workouts, savingOmission, savingDeletion]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -324,18 +330,51 @@ export function WorkoutReferenceScreen({
           ),
         },
     );
-  const removeSet = () =>
-    setDraft(
-      (current) =>
-        current && {
-          ...current,
-          exercises: current.exercises.map((item, index) =>
-            index !== exerciseIndex || item.sets.length === 1
-              ? item
-              : { ...item, sets: item.sets.slice(0, -1) },
-          ),
-        },
-    );
+  const removeSet = () => {
+    setDeletionError("");
+    setSkipSetIndex(null);
+    setDeleting(true);
+  };
+  const persistDeletion = async (undoId?: number) => {
+    if (deletionLock.current) return;
+    const current = latestDraftRef.current;
+    if (!current) return;
+    deletionLock.current = true;
+    setSavingDeletion(true);
+    setDeletionError("");
+    try {
+      const next = undoId === undefined
+        ? deleteLastSet(current, exerciseIndex)
+        : undoSetDeletion(current, undoId);
+      // All controls are locked until persistence acknowledges this transaction.
+      latestDraftRef.current = next;
+      if (workouts) await workouts.saveDraftSnapshot(next);
+      setDraft(next);
+      setDeleting(false);
+    } catch (reason) {
+      latestDraftRef.current = current;
+      setDeletionError(reason instanceof Error && !workouts ? reason.message : "No se pudo guardar el cambio. Tu trabajo sigue disponible; inténtalo de nuevo.");
+    } finally {
+      deletionLock.current = false;
+      setSavingDeletion(false);
+    }
+  };
+  const lastDeletion = draft.setDeletions?.filter((item) => !item.restored).at(-1);
+  if (deleting) {
+    const last = exercise.sets.at(-1)!;
+    return <Screen><Panel>
+      <AppText accessibilityRole="header" aria-level={1} variant="title">¿Eliminar esta serie?</AppText>
+      <AppText>{exerciseName(exercise.exerciseId)} · Serie {exercise.sets.length}</AppText>
+      <AppText>{last.load || "Sin carga"} × {last.reps} · {last.disposition === "COMPLETED" ? "Completada" : last.disposition === "SKIPPED" ? "Omitida" : "Pendiente"}</AppText>
+      {last.notes ? <AppText>{last.notes}</AppText> : null}
+      {last.skipReason ? <AppText>{last.skipReason}</AppText> : null}
+      <AppText>Podrás deshacer la eliminación, incluso al volver a abrir este entrenamiento.</AppText>
+      {exercise.sets.length === 1 ? <AppText>Conserva al menos una serie. Puedes omitirla con un motivo.</AppText> : null}
+      {deletionError ? <AppText accessibilityRole="alert">{deletionError}</AppText> : null}
+      <ActionButton accessibilityLabel="Confirmar eliminación" disabled={savingDeletion || exercise.sets.length === 1} onPress={() => persistDeletion()}>{savingDeletion ? "Guardando…" : "Eliminar serie"}</ActionButton>
+      <ActionButton accessibilityLabel="Cancelar eliminación" disabled={savingDeletion} tone="secondary" onPress={() => setDeleting(false)}>Cancelar</ActionButton>
+    </Panel></Screen>;
+  }
   const timer = draft.timer ?? resetTimer();
   const seconds = remainingSeconds(timer, now || timer.runningSince || 0);
   const updateTimer = (next: typeof timer) => {
@@ -395,8 +434,13 @@ export function WorkoutReferenceScreen({
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
-      <View style={styles.flex} pointerEvents={savingOmission ? "none" : "auto"}>
+      <View style={styles.flex} pointerEvents={savingOmission || savingDeletion ? "none" : "auto"}>
       <Screen scrollRef={scrollRef} testID="workout-screen">
+        {lastDeletion ? <Panel>
+          <AppText>Serie {lastDeletion.setIndex + 1} eliminada · {exerciseName(lastDeletion.exerciseId)}</AppText>
+          <ActionButton accessibilityLabel="Deshacer eliminación" disabled={savingDeletion} onPress={() => persistDeletion(lastDeletion.id)}>{savingDeletion ? "Guardando…" : "Deshacer"}</ActionButton>
+          {deletionError ? <AppText accessibilityRole="alert">{deletionError}</AppText> : null}
+        </Panel> : null}
         <WorkoutFrame
           commands={
             <>

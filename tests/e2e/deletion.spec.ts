@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import { startSyntheticWorkout } from './setup';
+import { readPersistence } from './persistence';
+
+test('deleting completed work requires confirmation, cancellation preserves it, and undo survives reopen', async ({ page, context }, info) => {
+  await startSyntheticWorkout(page);
+  const fields = page.getByLabel(/^Carga de la serie /);
+  const count = await fields.count();
+  await page.getByLabel(`Carga de la serie ${count}`, { exact: true }).fill('60');
+  await page.getByLabel(`Repeticiones de la serie ${count}`, { exact: true }).fill('8');
+  await page.getByLabel(`Notas de la serie ${count}`, { exact: true }).fill('Exact recorded work');
+  await page.getByRole('button', { name: `Completar serie ${count}`, exact: true }).click();
+  const snapshot = async (p = page) => JSON.parse(String((await readPersistence(p, info)).workouts[0]?.actual_snapshot_json));
+  await expect.poll(async () => (await snapshot()).exercises[0].sets.at(-1).completed).toBe(true);
+  const before = await snapshot();
+  await page.getByRole('button', { name: 'Quitar última serie', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Confirmar eliminación', exact: true })).toBeVisible();
+  expect(await snapshot()).toEqual(before);
+  await page.getByRole('button', { name: 'Cancelar eliminación', exact: true }).click();
+  await page.reload();
+  await expect(fields).toHaveCount(count);
+  expect(await snapshot()).toEqual(before);
+  await page.getByRole('button', { name: 'Quitar última serie', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirmar eliminación', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
+  await expect(fields).toHaveCount(count - 1);
+  const deleted = await snapshot();
+  expect(deleted.exercises[0].sets).toEqual(before.exercises[0].sets.slice(0, -1));
+  expect(deleted.setDeletions[0].set).toEqual(before.exercises[0].sets.at(-1));
+  if (count === 2) {
+    await page.getByRole('button', { name: 'Quitar última serie', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Confirmar eliminación', exact: true })).toBeDisabled();
+    await expect(page.getByText('Conserva al menos una serie. Puedes omitirla con un motivo.')).toBeVisible();
+    await page.getByRole('button', { name: 'Cancelar eliminación', exact: true }).click();
+    expect(await snapshot()).toEqual(deleted);
+  }
+  await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Unrelated later edit');
+  await expect.poll(async () => (await snapshot()).exercises[0].sets[0].notes).toBe('Unrelated later edit');
+  await page.close();
+  const reopened = await context.newPage();
+  await reopened.goto('/workout');
+  await reopened.getByRole('button', { name: 'Deshacer eliminación', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
+  await expect(reopened.getByLabel(/^Carga de la serie /)).toHaveCount(count);
+  const restored = await snapshot(reopened);
+  expect(restored.exercises[0].sets.at(-1)).toEqual(before.exercises[0].sets.at(-1));
+  expect(restored.exercises[0].sets[0].notes).toBe('Unrelated later edit');
+  expect(restored.safetyModifications).toEqual(before.safetyModifications);
+  await reopened.reload();
+  expect((await snapshot(reopened)).exercises).toEqual(restored.exercises);
+  await info.attach('deletion-readback', { body: JSON.stringify({ before, deleted, restored }), contentType: 'application/json' });
+});
