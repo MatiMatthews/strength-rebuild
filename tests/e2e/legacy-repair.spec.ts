@@ -57,7 +57,8 @@ test('confirm legacy repair, preserve originals, activate and cold reopen the ef
   expect(await readPersistence(app, info)).toEqual(before);
   await app.close(); app = await context.newPage();
   await preview();
-  await app.getByRole('button', { name: 'Confirmar reparación', exact: true }).click();
+  // Two immediate presses exercise the production handler while its transaction is pending.
+  await app.getByRole('button', { name: 'Confirmar reparación', exact: true }).evaluate(button => { (button as HTMLElement).click(); (button as HTMLElement).click(); });
   await expect(app.getByText('Referencia reparada. Se conserva el original y tu elección queda registrada.')).toBeVisible();
   expect(await readPersistence(app, info)).toEqual(before);
   await app.close(); app = await context.newPage();
