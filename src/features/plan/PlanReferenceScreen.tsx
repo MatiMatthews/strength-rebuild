@@ -19,6 +19,8 @@ import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/fe
 import type { BackupService } from '@/application/export';
 
 export interface PlanPrograms {
+  prepareLegacyRepair?: ProgramService['prepareLegacyRepair'];
+  applyLegacyRepair?: ProgramService['applyLegacyRepair'];
   previewLegacyReplacement?: ProgramService['previewLegacyReplacement'];
   listInvalidSessionReferences?(): Promise<readonly InvalidSessionReference[]>;
   createPlan(requests: readonly CyclePrescriptionRequest[]): Promise<readonly CyclePrescriptionSnapshot[]>;
@@ -132,7 +134,14 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       {invalidSessions.some((session) => !session.unstarted) ? <AppText>Sesiones iniciadas o cerradas con referencias originales: {invalidSessions.filter((session) => !session.unstarted).length}. No se sustituye el trabajo registrado.</AppText> : null}
       {ready && focused && programs.previewLegacyReplacement ? invalidSessions.filter((session) => session.unstarted).map((session) => <ActionButton key={session.sessionPlanId} accessibilityLabel={`Revisar referencias de semana ${session.weekIndex}, sesión ${session.dayIndex}`} onPress={() => setReviewing(session)} tone="secondary">Revisar semana {session.weekIndex} · sesión {session.dayIndex}</ActionButton>) : null}
     </Panel> : null}
-    {ready && focused && reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs) }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
+    {ready && focused && reviewing && programs.previewLegacyReplacement ? <LegacyReferencePreview key={reviewing.sessionPlanId} reference={reviewing} programs={{ previewLegacyReplacement: programs.previewLegacyReplacement.bind(programs),
+      ...(programs.prepareLegacyRepair ? { prepareLegacyRepair: programs.prepareLegacyRepair.bind(programs) } : {}),
+      ...(programs.applyLegacyRepair ? { applyLegacyRepair: programs.applyLegacyRepair.bind(programs) } : {}) }}
+      onApplied={async () => {
+        const [stored, invalid] = await Promise.all([programs.listCycleSnapshots(), programs.listInvalidSessionReferences!()]);
+        setCycles(stored); setInvalidSessions(invalid); setReviewing(null);
+        setFeedback({ message: 'Referencia reparada. Se conserva el original y tu elección queda registrada.', tone: 'success' });
+      }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
     {active && feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand current={1} label={`ACTIVO · ${names[cycles.find(({ id }) => id === active)?.type ?? 'strength']}`} total={cycles.find(({ id }) => id === active)?.weeks.length ?? 1} /><AppText variant="bodyStrong">Próxima decisión: revisión semanal</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>

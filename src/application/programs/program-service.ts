@@ -1,3 +1,5 @@
+import { effectiveSession, LEGACY_REPAIR_POLICY, type LegacyRepairProposal } from './legacy-repair';
+import { resolveTrainingSettings, type TrainingSettings } from '../../features/settings/settings';
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import {
   generateCycleSequence,
@@ -50,6 +52,7 @@ export interface InvalidSessionReference {
   readonly dayIndex: number;
   readonly invalidExerciseIds: readonly string[];
   readonly unstarted: boolean;
+  readonly repairable?: boolean;
 }
 
 export interface TodayContext {
@@ -118,10 +121,11 @@ export class ProgramService {
 
   async listCycleSnapshots(): Promise<readonly CyclePrescriptionSnapshot[]> {
     const rows = await this.db.getAllAsync<CycleRow>('SELECT snapshot_json FROM cycle ORDER BY rowid');
-    const sessions = await this.db.getAllAsync<CycleRow & { cycle_id: string; week_index: number; day_index: number }>(
-      `SELECT w.cycle_id, w.week_index, s.day_index, s.snapshot_json
+    const sessions = await this.db.getAllAsync<CycleRow & { id: string; cycle_id: string; week_index: number; day_index: number }>(
+      `SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json
        FROM session_plan s JOIN training_week w ON w.id = s.training_week_id`,
     );
+    for (const session of sessions) session.snapshot_json = JSON.stringify(await effectiveSession(this.db, session.id, JSON.parse(session.snapshot_json) as TodayData['session']));
     return rows.map(({ snapshot_json }) => {
       const cycle = JSON.parse(snapshot_json) as CyclePrescriptionSnapshot;
       const storedSessions = sessions.filter((session) => session.cycle_id === cycle.id);
@@ -140,12 +144,14 @@ export class ProgramService {
   async listInvalidSessionReferences(): Promise<readonly InvalidSessionReference[]> {
     const rows = await this.db.getAllAsync<{
       id: string; cycle_id: string; week_index: number; day_index: number;
-      snapshot_json: string; status: string; cycle_status: string; has_workout: number;
+      snapshot_json: string; status: string; cycle_status: string; has_workout: number; cycle_has_workout: number;
     }>(`SELECT s.id, w.cycle_id, w.week_index, s.day_index, s.snapshot_json, s.status, c.status AS cycle_status,
-        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout
+        EXISTS(SELECT 1 FROM workout_session recorded WHERE recorded.session_plan_id = s.id) AS has_workout,
+        EXISTS(SELECT 1 FROM workout_session recorded JOIN session_plan sp ON sp.id = recorded.session_plan_id JOIN training_week tw ON tw.id = sp.training_week_id WHERE tw.cycle_id = c.id) AS cycle_has_workout
       FROM session_plan s JOIN training_week w ON w.id = s.training_week_id
       JOIN cycle c ON c.id = w.cycle_id ORDER BY c.rowid, w.week_index, s.day_index`);
     const available = new Set(exerciseCatalog.filter((entry) => entry.pattern !== 'review').map((entry) => entry.id));
+    for (const row of rows) row.snapshot_json = JSON.stringify(await effectiveSession(this.db, row.id, JSON.parse(row.snapshot_json) as TodayData['session']));
     return rows.flatMap((row) => {
       const session = JSON.parse(row.snapshot_json) as TodayData['session'];
       const exercises = [...session.exercises,
@@ -153,6 +159,7 @@ export class ProgramService {
       const invalidExerciseIds = [...new Set(exercises.filter((exercise) => !available.has(exercise.exerciseId)).map((exercise) => exercise.exerciseId))];
       return invalidExerciseIds.length ? [{ cycleId: row.cycle_id, sessionPlanId: row.id,
         weekIndex: row.week_index, dayIndex: row.day_index, invalidExerciseIds,
+        repairable: row.status === 'PLANNED' && row.cycle_status === 'READY' && !row.cycle_has_workout,
         unstarted: row.status === 'PLANNED' && ['READY', 'ACTIVE'].includes(row.cycle_status) && !row.has_workout }] : [];
     });
   }
@@ -171,6 +178,58 @@ export class ProgramService {
       ...constraints, requirements: [{ kind: 'EXACT', value: replacementId }] });
     return prescribeCatalogExercise({ type: row.kind }, replacement!, 'EXACT',
       replacement!.tags.includes('power') ? { power: true, plyometric: replacement!.impact !== 'none' } : {});
+  }
+
+  private async repairConstraints(): Promise<{ constraints: string; settingsSource: string | null }> {
+    const row = await this.db.getFirstAsync<{ value_json: string }>('SELECT value_json FROM app_setting WHERE key = ?', 'training-settings');
+    const settings = resolveTrainingSettings(row ? JSON.parse(row.value_json) as TrainingSettings : undefined);
+    const restrictions = await this.db.getAllAsync('SELECT * FROM active_restriction WHERE active = 1 ORDER BY id');
+    // Persisted restrictions are safety state; this repair cannot infer an equivalent prescription.
+    if (restrictions.length) throw new Error('Hay una restricción activa. Revisa la seguridad antes de reparar el plan.');
+    return { constraints: JSON.stringify({ equipment: settings.equipment, restrictions: settings.restrictions }), settingsSource: row?.value_json ?? null };
+  }
+
+  async prepareLegacyRepair(sessionPlanId: string, originalExerciseId: string, replacementId: string): Promise<LegacyRepairProposal> {
+    const reference = (await this.listInvalidSessionReferences()).find(entry => entry.sessionPlanId === sessionPlanId);
+    if (!reference?.repairable) throw new Error('Solo se pueden reparar planes listos sin trabajo registrado. Se conserva el original.');
+    if (!reference.invalidExerciseIds.includes(originalExerciseId)) throw new Error('La referencia ya no necesita reparación. Vuelve a abrir el plan.');
+    const { constraints, settingsSource } = await this.repairConstraints();
+    const row = await this.db.getFirstAsync<{ snapshot_json: string; kind: TodayData['cycleType'] }>(
+      'SELECT s.snapshot_json, c.kind FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id WHERE s.id = ?', sessionPlanId);
+    if (!row) throw new Error('La sesión ya no está disponible.');
+    const [choice] = resolveCatalogRequirements({ id: 'replacement-preview', type: row.kind, weeks: 1,
+      ...JSON.parse(constraints), requirements: [{ kind: 'EXACT', value: replacementId }] });
+    const replacement = prescribeCatalogExercise({ type: row.kind }, choice!, 'EXACT',
+      choice!.tags.includes('power') ? { power: true, plyometric: choice!.impact !== 'none' } : {});
+    return { sessionPlanId, cycleId: reference.cycleId, originalExerciseId, replacement, source: row.snapshot_json, constraints, settingsSource, cycleKind: row.kind };
+  }
+
+  async applyLegacyRepair(proposal: LegacyRepairProposal): Promise<void> {
+    const id = `legacy-repair:${JSON.stringify([proposal.sessionPlanId, proposal.originalExerciseId])}`;
+    const alreadyApplied = async () => {
+      const existing = await this.db.getFirstAsync<{ inputs_json: string }>('SELECT inputs_json FROM decision_log WHERE id = ?', id);
+      if (!existing) return false;
+      if (existing.inputs_json !== JSON.stringify(proposal)) throw new Error('La referencia ya fue reparada. Vuelve a abrir el plan.');
+      return true;
+    };
+    if (await alreadyApplied()) return;
+    const fresh = await this.prepareLegacyRepair(proposal.sessionPlanId, proposal.originalExerciseId, proposal.replacement.exerciseId);
+    if (JSON.stringify(fresh) !== JSON.stringify(proposal)) throw new Error('La propuesta cambió. Revisa el plan y confirma una propuesta nueva.');
+    const timestamp = this.now();
+    // One conditional statement is the transaction. It neither admits stale writes
+    // nor rolls back unrelated work that arrives on the shared SQLite connection.
+    const result = await this.db.runAsync(`INSERT OR IGNORE INTO decision_log
+      (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
+      SELECT ?, 1, ?, ?, 'legacy-prescription-repair', ?, ?, ?, 1, ?
+      FROM session_plan s JOIN training_week w ON w.id = s.training_week_id JOIN cycle c ON c.id = w.cycle_id
+      WHERE s.id = ? AND s.status = 'PLANNED' AND s.snapshot_json = ? AND c.id = ? AND c.kind = ? AND c.status = 'READY'
+        AND (SELECT value_json FROM app_setting WHERE key = 'training-settings') IS ?
+        AND NOT EXISTS(SELECT 1 FROM active_restriction WHERE active = 1)
+        AND NOT EXISTS(SELECT 1 FROM workout_session recorded JOIN session_plan sp ON sp.id = recorded.session_plan_id
+          JOIN training_week tw ON tw.id = sp.training_week_id WHERE tw.cycle_id = c.id)`,
+      id, timestamp, timestamp, LEGACY_REPAIR_POLICY, JSON.stringify(proposal), JSON.stringify(proposal.replacement), timestamp,
+      proposal.sessionPlanId, proposal.source, proposal.cycleId, proposal.cycleKind, proposal.settingsSource);
+    if (result.changes !== 1 && !await alreadyApplied()) throw new Error('La propuesta cambió. Revisa el plan y confirma una propuesta nueva.');
   }
 
   async getActiveCycleId(): Promise<string | null> {
@@ -205,11 +264,14 @@ export class ProgramService {
       }
     };
     const cycle = JSON.parse(row.snapshot_json) as CyclePrescriptionSnapshot;
-    cycle.weeks.forEach((week) => week.sessions.forEach(validateSession));
-    const sessions = await this.db.getAllAsync<CycleRow>(
-      'SELECT s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,
+    for (const week of cycle.weeks) for (const [index, session] of week.sessions.entries()) {
+      const stored = await this.db.getFirstAsync<{ id: string }>('SELECT s.id FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ? AND w.week_index = ? AND s.day_index = ?', id, week.index, index + 1);
+      validateSession(stored ? await effectiveSession(this.db, stored.id, session) : session);
+    }
+    const sessions = await this.db.getAllAsync<CycleRow & { id: string }>(
+      'SELECT s.id, s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,
     );
-    sessions.forEach((session) => validateSession(JSON.parse(session.snapshot_json) as TodayData['session']));
+    for (const session of sessions) validateSession(await effectiveSession(this.db, session.id, JSON.parse(session.snapshot_json) as TodayData['session']));
   }
 
   /** Applies an explicitly confirmed lifecycle step; time alone never calls this seam. */
@@ -281,8 +343,8 @@ export class ProgramService {
       cycleType: row.cycle_kind,
       weekIndex: row.week_index,
       dayIndex: row.day_index,
-      cycle: JSON.parse(row.cycle_snapshot_json) as CyclePrescriptionSnapshot,
-      session: JSON.parse(row.session_snapshot_json) as TodayData['session'],
+      cycle: (await this.listCycleSnapshots()).find(cycle => cycle.id === row.cycle_id)!,
+      session: await effectiveSession(this.db, row.session_plan_id, JSON.parse(row.session_snapshot_json) as TodayData['session']),
     };
   }
 

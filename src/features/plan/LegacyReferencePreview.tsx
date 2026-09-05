@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import type { LegacyRepairProposal } from '@/application/programs/legacy-repair';
+import { useRef, useState } from 'react';
 
 import type { InvalidSessionReference, ProgramService, TodayData } from '@/application/programs/program-service';
 import { exerciseCatalog } from '@/data/seeds/exercises';
@@ -7,13 +8,17 @@ import { catalogCompatibility } from '@/domain/prescriptions/catalog-requirement
 import type { TrainingSettings } from '@/features/settings/settings';
 
 /** Local exploration only; committing a repair requires a separate guarded transaction. */
-export function LegacyReferencePreview({ reference, programs, settings, onCancel, onOpenSettings }: {
+export function LegacyReferencePreview({ reference, programs, settings, onCancel, onOpenSettings, onApplied }: {
   reference: InvalidSessionReference;
-  programs: Pick<ProgramService, 'previewLegacyReplacement'>;
+  programs: Pick<ProgramService, 'previewLegacyReplacement'> & Partial<Pick<ProgramService, 'prepareLegacyRepair' | 'applyLegacyRepair'>>;
   settings: TrainingSettings;
   onCancel(): void;
+  onApplied?(): Promise<void>;
   onOpenSettings?(): void;
 }) {
+  const locked = useRef(false);
+  const [proposal, setProposal] = useState<LegacyRepairProposal | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,11 +28,23 @@ export function LegacyReferencePreview({ reference, programs, settings, onCancel
   const choices = exerciseCatalog.filter((exercise) => exercise.pattern !== 'review' && compatible(exercise)
     && exercise.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const choose = async (original: string, replacement: string) => {
-    if (busy) return;
-    setBusy(true); setError(null); setPreview(null);
-    try { setPreview({ original, exercise: await programs.previewLegacyReplacement(reference.sessionPlanId, original, replacement, constraints) }); }
+    if (locked.current) return;
+    locked.current = true;
+    setBusy(true); setError(null); setPreview(null); setProposal(null); setConfirming(false);
+    try {
+      const prepared = reference.repairable && programs.prepareLegacyRepair ? await programs.prepareLegacyRepair(reference.sessionPlanId, original, replacement) : null;
+      setProposal(prepared);
+      setPreview({ original, exercise: prepared?.replacement ?? await programs.previewLegacyReplacement(reference.sessionPlanId, original, replacement, constraints) });
+    }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'No se pudo preparar la propuesta. Inténtalo de nuevo.'); }
-    finally { setBusy(false); }
+    finally { setBusy(false); locked.current = false; }
+  };
+  const apply = async () => {
+    if (locked.current || !proposal || !programs.applyLegacyRepair) return;
+    locked.current = true; setBusy(true); setError(null);
+    try { await programs.applyLegacyRepair(proposal); await onApplied?.(); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'No se pudo guardar. Vuelve a abrir el plan.'); setConfirming(false); }
+    finally { locked.current = false; setBusy(false); }
   };
   const proposedExercise = preview ? exerciseCatalog.find((exercise) => exercise.id === preview.exercise.exerciseId) : undefined;
   return <Panel>
@@ -52,8 +69,13 @@ export function LegacyReferencePreview({ reference, programs, settings, onCancel
         {proposedExercise.instructions.map((instruction) => <AppText key={instruction}>{instruction}</AppText>)}
       </Panel> : null}
       <AppText>Solo vista previa. Tu sesión original sigue intacta.</AppText>
-      <ActionButton onPress={() => setPreview(null)} tone="secondary">Elegir otra propuesta</ActionButton>
+      {proposal ? confirming ? <Panel>
+        <AppText>¿Confirmar la reparación de esta referencia? Se guardará tu elección y se conservará el original. No se transfiere ninguna carga.</AppText>
+        <ActionButton disabled={busy} onPress={apply}>Confirmar reparación</ActionButton>
+        <ActionButton disabled={busy} tone="secondary" onPress={() => setConfirming(false)}>Volver a la propuesta</ActionButton>
+      </Panel> : <ActionButton disabled={busy} onPress={() => setConfirming(true)}>Reparar esta referencia</ActionButton> : null}
+      <ActionButton disabled={busy} onPress={() => { setPreview(null); setProposal(null); setConfirming(false); }} tone="secondary">Elegir otra propuesta</ActionButton>
     </Panel> : null}
-    <ActionButton accessibilityLabel="Cancelar revisión de referencias" onPress={onCancel} tone="secondary">Cancelar</ActionButton>
+    <ActionButton accessibilityLabel="Cancelar revisión de referencias" disabled={busy} onPress={onCancel} tone="secondary">Cancelar</ActionButton>
   </Panel>;
 }

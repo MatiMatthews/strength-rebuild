@@ -1,3 +1,4 @@
+import { effectiveSession } from '../programs/legacy-repair';
 import type { TodayData } from '../programs/program-service';
 import { SettingRepository, WorkoutRepository, type RepositoryDatabase } from '../../data/repositories';
 import { restoreTimer, type RestTimerState } from '../../features/timer/rest-timer';
@@ -324,7 +325,7 @@ export class WorkoutService {
     );
     const actual = draft.exercises.find((exercise) => exercise.requirement === 'EXACT') ?? draft.exercises[0];
     if (!context || !actual) return;
-    const session = JSON.parse(context.snapshot_json) as TodayData['session'];
+    const session = await effectiveSession(this.db, draft.sessionPlanId, JSON.parse(context.snapshot_json) as TodayData['session']);
     const prescribed = executableExercises(session).find(({ exercise }) => exercise.exerciseId === actual.exerciseId)?.exercise;
     if (!prescribed) return;
     const completedSets = actual.sets.filter((set) => set.disposition === 'COMPLETED');

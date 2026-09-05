@@ -24,6 +24,34 @@ function open(path: string) {
 }
 
 describe('plan generation SQLite seam', () => {
+  it('repairs an unstarted prescription without rewriting originals and activates the effective plan', async () => {
+    const opened = open(':memory:');
+    try {
+      await migrateDatabase(opened.db);
+      const programs = new ProgramService(opened.db);
+      await programs.createPlan([{ id: 'repair', type: 'strength', weeks: 1 }]);
+      const id = 'repair-week-1-day-1';
+      const row = await opened.db.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM session_plan WHERE id = ?', id);
+      const session = JSON.parse(row!.snapshot_json);
+      session.exercises[0].exerciseId = 'unknown';
+      session.blocks[0].exercises[0].exerciseId = 'unknown';
+      await opened.db.runAsync('UPDATE session_plan SET snapshot_json = ? WHERE id = ?', JSON.stringify(session), id);
+      const originals = await opened.db.getAllAsync('SELECT * FROM session_plan');
+      const proposal = await programs.prepareLegacyRepair(id, 'unknown', 'barbell-bench-press');
+      await programs.applyLegacyRepair(proposal);
+      await programs.applyLegacyRepair(proposal);
+      expect(await opened.db.getAllAsync('SELECT * FROM session_plan')).toEqual(originals);
+      expect(await programs.listInvalidSessionReferences()).toEqual([]);
+      await programs.activateCycle('repair');
+      const today = await programs.getToday();
+      expect(today!.session.exercises[0]!.exerciseId).toBe('barbell-bench-press');
+      expect(today!.session.exercises[0]!.calculatedLoad).toBeUndefined();
+      expect(today!.cycle.weeks[0]!.sessions[0]).toEqual(today!.session);
+      expect((await programs.listCycleSnapshots())[0]!.weeks[0]!.sessions[0]).toEqual(today!.session);
+      expect(await opened.db.getAllAsync('SELECT * FROM decision_log')).toHaveLength(1);
+    } finally { opened.close(); }
+  });
+
   it('shows accepted persisted session targets in Plan exactly as Today reads them, without rewriting original snapshots', async () => {
     const opened = open(':memory:');
     try {
@@ -140,12 +168,12 @@ describe('plan generation SQLite seam', () => {
     await expect(service.previewLegacyReplacement('legacy-week-1-day-2', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
     await expect(service.previewLegacyReplacement('legacy-week-1-day-3', 'missing-flat', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('iniciada');
     await expect(service.previewLegacyReplacement('legacy-week-1-day-1', 'real-id', 'bird-dog', { equipment: ['bodyweight'], restrictions: [] })).rejects.toThrow('referencia');
-    expect(await service.listInvalidSessionReferences()).toEqual(expected);
-    expect(await service.listInvalidSessionReferences()).toEqual(expected);
+    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
+    expect(await service.listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
     expect(await Promise.all(tables.map((table) => first.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
     first.close();
     const reopened = open(path);
-    expect(await new ProgramService(reopened.db).listInvalidSessionReferences()).toEqual(expected);
+    expect(await new ProgramService(reopened.db).listInvalidSessionReferences()).toEqual(expected.map(reference => ({ ...reference, repairable: false })));
     expect(await Promise.all(tables.map((table) => reopened.db.getAllAsync(`SELECT * FROM ${table}`)))).toEqual(before);
     reopened.close();
   });
