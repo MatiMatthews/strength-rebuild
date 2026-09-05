@@ -31,17 +31,17 @@ test('requirement fields reject invalid drafts without changing saved settings o
   await expect(page.getByRole('alert').filter({ hasText: 'Requisito 1 (' }), 'Missing equipment must reject the exact requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
   await page.getByLabel('Alternar equipo Banco', { exact: true }).click();
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('sin impacto');
+  await page.getByLabel('Restricciones activas', { exact: true }).fill('Sin impacto');
   await save.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Requisito 3 (' }), 'Impact restriction must reject the power requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('lumbar');
+  await page.getByLabel('Restricciones activas', { exact: true }).fill('Lumbar');
   await save.click();
   await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
   const accepted = await readPersistence(page, info);
   const settings = JSON.parse(String(accepted.settings.find(row => row.key === 'training-settings')?.value_json));
   expect(settings.requirements).toEqual(cases.map(({ kind, value }) => ({ kind, value })));
-  expect(settings.restrictions).toEqual(['lumbar']);
+  expect(settings.restrictions).toEqual(['Lumbar']);
   expect(accepted.cycles).toEqual(before.cycles);
   expect(accepted.templates).toEqual(before.templates);
   expect(accepted.sessionSnapshots).toEqual(before.sessionSnapshots);
@@ -49,7 +49,7 @@ test('requirement fields reject invalid drafts without changing saved settings o
   const reopened = await context.newPage();
   await reopened.goto('/settings');
   for (const requirement of cases) await expect(reopened.getByLabel(`Requisito ${requirement.kind}`, { exact: true })).toHaveValue(requirement.value);
-  await expect(reopened.getByLabel('Restricciones activas', { exact: true })).toHaveValue('lumbar');
+  await expect(reopened.getByLabel('Restricciones activas', { exact: true })).toHaveValue('Lumbar');
   expect(await readPersistence(reopened, info)).toEqual(accepted);
 });
 
@@ -63,7 +63,7 @@ test(`chosen requirement kinds retain catalog prescriptions from preview through
   for (const [index, choice] of choices.entries()) {
     await page.getByLabel(`Elegir ${choice} para requisito ${index + 1}`, { exact: true }).click();
   }
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('lumbar');
+  await page.getByLabel('Restricciones activas', { exact: true }).fill('Lumbar');
   await page.getByRole('button', { name: 'Guardar configuración local', exact: true }).click();
   await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
   await page.goto('/plan');

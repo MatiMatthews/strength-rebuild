@@ -42,7 +42,8 @@ export function catalogCompatibility(request: CyclePrescriptionRequest): (exerci
     : Object.entries(input ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
   return (exercise) => {
     return (!equipment || exercise.equipment.every((item) => equipment.has(item)))
-        && restrictions.every((restriction) => {
+        && restrictions.every((value) => {
+          const restriction = value.trim().toLowerCase();
           if (restriction === 'sin impacto') return exercise.impact === 'none';
           if (restriction === 'lumbar') return exercise.lumbarDemand === 'low';
           if (restriction === 'abdominal') return exercise.braceDemand === 'low';

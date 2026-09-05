@@ -55,6 +55,16 @@ describe('catalog requirements consumed by prescription generation', () => {
     }
   });
 
+  it.each(['lumbar', 'abdominal', 'sin impacto'])('preserves %s safety under native capitalization', (restriction) => {
+    const canonical = generatePrescription({ ...request, type: 'power', restrictions: [restriction] });
+    const nativeInput = `  ${restriction[0]!.toUpperCase()}${restriction.slice(1)}  `;
+    expect(generatePrescription({ ...request, type: 'power', restrictions: [nativeInput] })).toEqual(canonical);
+  });
+
+  it('still rejects power when the native keyboard capitalizes the impact restriction', () => {
+    expect(() => requestedExercise('CAPABILITY', 'power', undefined, ['Sin impacto'])).toThrow(/Requisito 1/);
+  });
+
   it('omits unavailable default equipment while retaining available work and review markers', () => {
     const snapshot = generatePrescription({ ...request, equipment: ['bodyweight'], requirements: [{ kind: 'EXACT', value: 'bird-dog' }] });
     for (const session of snapshot.weeks[0]!.sessions) {
