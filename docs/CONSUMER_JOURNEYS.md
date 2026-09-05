@@ -105,3 +105,5 @@ positive, negative and persistence assertions, update this inventory, and rerun
 The combined baseline acceptance must be rerun even after its individual parts
 have passed. Native and human evidence cannot be inferred from the common web
 command.
+
+Wholly unstarted legacy plans can explicitly confirm a compatible replacement, retain the original in an auditable decision, and activate the effective prescription. The cumulative Chrome journey covers cancellation, confirmation, activation and cold workout reopen; SQLite tests also cover stale settings/work, rollback, repeated confirmation and encrypted backup restore. Used cycles remain read-only pending future-session repair support.
