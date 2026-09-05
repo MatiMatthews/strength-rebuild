@@ -32,7 +32,7 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
   const run = async (task: () => Promise<void>) => {
     if (lock.current || !ready) return;
     lock.current = true; setBusy(true); setMessage('');
-    try { await task(); } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar. Reintenta; tus datos se conservan.'); }
+    try { await task(); } catch (error) { setMessage(error instanceof Error && /^(Esta |La semana |La revisión |Ya se |Decisión )/.test(error.message) ? error.message : 'No se pudo guardar la revisión. Reintenta; tus datos se conservan.'); }
     finally { lock.current = false; setBusy(false); }
   };
   const decide = (choice: WeeklyChoice) => run(async () => {

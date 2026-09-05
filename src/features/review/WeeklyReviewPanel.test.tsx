@@ -31,7 +31,7 @@ it('rehydrates a saved result, preserves it after a failed write', async () => {
   expect(await view.findByText('Resultado persistido.')).toBeTruthy();
   expect(view.queryByLabelText('Crear propuesta semanal')).toBeNull();
   await fireEvent.press(view.getByLabelText('Mantener plan semanal'));
-  expect(await view.findByText('No se pudo guardar')).toBeTruthy();
+  expect(await view.findByText('No se pudo guardar la revisión. Reintenta; tus datos se conservan.')).toBeTruthy();
   expect(view.getByText('Resultado persistido.')).toBeTruthy();
   expect(reviews.propose).not.toHaveBeenCalled();
 });
