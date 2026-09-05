@@ -15,6 +15,17 @@ const planned = {
 describe('Today production states', () => {
   const settings = { onOpenSettings: jest.fn() };
 
+  it.each(['planned', 'resume'] as const)('identifies unknown references in %s without changing prescriptions', async (kind) => {
+    const data = JSON.parse(JSON.stringify(planned)) as TodayData;
+    Object.assign(data.session.exercises[0]!, { exerciseId: 'missing-legacy' });
+    const original = JSON.stringify(data);
+    const screen = await render(<TodayReferenceScreen {...settings} state={{ kind, data }} onStartWorkout={jest.fn()} />);
+    expect(screen.getByText('Ejercicio no disponible en el catálogo')).toBeOnTheScreen();
+    expect(screen.getByText('Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.')).toBeOnTheScreen();
+    expect(screen.queryByText('missing-legacy')).toBeNull();
+    expect(JSON.stringify(data)).toBe(original);
+  });
+
   it('uses catalog names for warm-up and mobility instead of technical identifiers', async () => {
     const catalogEntries = exerciseCatalog.filter(({ pattern }) => pattern === 'activation' || pattern === 'mobility');
     const template = planned.session.exercises[0];

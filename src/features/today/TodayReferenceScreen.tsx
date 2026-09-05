@@ -54,7 +54,7 @@ const cycleNames = {
 } as const;
 
 function exerciseLabel(id: string): string {
-  return names[id] ?? exerciseCatalog.find((exercise) => exercise.id === id)?.name ?? id;
+  return names[id] ?? exerciseCatalog.find((exercise) => exercise.id === id)?.name ?? "Ejercicio no disponible en el catálogo";
 }
 
 export function TodayReferenceScreen({
@@ -69,6 +69,7 @@ export function TodayReferenceScreen({
   const [gateOpen, setGateOpen] = useState(Boolean(initialReadinessInput));
   const [persistedReadinessDismissed, setPersistedReadinessDismissed] = useState(false);
   const data = "data" in state ? state.data : null;
+  const unknownReferences = data?.session.exercises.some((exercise) => !exerciseCatalog.some((entry) => entry.id === exercise.exerciseId && entry.pattern !== "review"));
   const emptyCopy =
     state.kind === "review-required"
       ? [
@@ -159,6 +160,13 @@ export function TodayReferenceScreen({
                   comenzar.
                 </Text>
               </View>
+            </View>
+          ) : null}
+          {unknownReferences ? (
+            <View accessibilityRole="alert" style={styles.restriction}>
+              <Text style={[styles.body, { color: theme.text }]}>
+                Esta sesión contiene referencias desconocidas. Consulta el plan; no se han sustituido ejercicios ni modificado tus registros.
+              </Text>
             </View>
           ) : null}
           <View testID="readiness-action-band">
