@@ -45,7 +45,7 @@ export function validateSettings(settings: TrainingSettings): { success: true } 
   if (!settings.increments.length || settings.increments.some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Añade al menos un incremento positivo.' };
   if (!settings.equipment.length) return { success: false, message: 'Selecciona al menos un equipo disponible.' };
   if (!settings.schedule.length || settings.schedule.some((day) => day < 1 || day > 7)) return { success: false, message: 'Selecciona al menos un día válido.' };
-  if (!settings.requirements.length || settings.requirements.some(({ value }) => !value.trim())) return { success: false, message: 'Completa al menos un requisito.' };
+  if (!settings.requirements.length) return { success: false, message: 'Completa al menos un requisito.' };
   if (settings.profile && Object.values(settings.profile).some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Las referencias de fuerza deben ser positivas.' };
   try {
     resolveCatalogRequirements({ id: 'settings-validation', type: 'strength', weeks: 1, equipment: settings.equipment, requirements: settings.requirements, restrictions: settings.restrictions });
