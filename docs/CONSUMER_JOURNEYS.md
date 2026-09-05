@@ -65,7 +65,7 @@ accepted end-to-end repair proof yet.
 
 | Consumer outcome | Status | Required behavior and evidence |
 | --- | --- | --- |
-| Reproducible consumer gates | Smoke accepted; combined acceptance pending | Fresh locked install/check; production plan/set/reopen, SQLite readback, Chrome captures, targeted faults and separate red witness. |
+| Reproducible consumer gates | Combined browser baseline accepted | Fresh locked install/check; production plan/set/reopen, SQLite readback, inspected Chrome captures, all 11 targeted faults detected and separate next-workout red witness. Native and future product outcomes remain pending below. |
 | Valid exercise requirements | Pending | Exact/pattern/capability resolve catalog IDs; equipment/restriction negatives; visible invalid-input recovery; preview and stored IDs, preserve completed legacy records. |
 | Next workout after review | Observed red | Finish first session, reach and persist accept/keep/reject decisions, reopen into next session; genuine safety block remains; Chrome and proposal/session readback. |
 | Weekly and cycle transitions | Pending | Full week/cycle via UI; correct week/status, future-only targets, keep/reject negatives, explicit next cycle and deload; reopen and SQLite at transitions. |
