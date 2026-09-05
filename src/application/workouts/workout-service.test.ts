@@ -8,6 +8,45 @@ import type { TodayData } from '../programs/program-service';
 import { ProgramService } from '../programs/program-service';
 
 describe('WorkoutService', () => {
+  it('rejects empty reasons and completed work, and keeps repeated safety omissions idempotent', () => {
+    const service = new WorkoutService({} as RepositoryDatabase);
+    const draft = { id: 'omission', safetyModifications: [], exercises: [{ exerciseId: 'press', originalExerciseId: 'press', requirement: 'EXACT',
+      sets: [{ load: '60', reps: '8', rir: '2', technique: 'Limpia', pain: 5, notes: 'preserve', completed: false,
+        skipped: false, disposition: 'PENDING' }] }] } as import('./workout-service').WorkoutDraft;
+    const before = JSON.stringify(draft);
+    expect(() => service.skipSet(draft, 0, 0, '  ')).toThrow('A skip reason is required');
+    const omitted = service.skipSet(draft, 0, 0, 'Pain stop');
+    expect(omitted.exercises[0]!.sets[0]).toMatchObject({ completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Pain stop', load: '60', pain: 5 });
+    expect(service.skipSet(omitted, 0, 0, 'Pain stop')).toBe(omitted);
+    expect(service.completeSet(omitted, 0, 0).exercises[0]!.sets[0]!.completed).toBe(false);
+    expect(JSON.stringify(draft)).toBe(before);
+    const completed = { ...draft, exercises: [{ ...draft.exercises[0]!, sets: [{ ...draft.exercises[0]!.sets[0]!, pain: 0, completed: true, disposition: 'COMPLETED' as const }] }] };
+    expect(() => service.skipSet(completed, 0, 0, 'Remove')).toThrow('Completed work cannot be omitted');
+  });
+
+  it('orders fallback snapshots so a slow autosave cannot overwrite a confirmed omission', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    const writes: { params: SqlValue[]; finish: () => void }[] = [];
+    const db = { runAsync: (sql: string, ...params: SqlValue[]) => new Promise(resolve => {
+      writes.push({ params, finish: () => { const result = sqlite.prepare(sql).run(...params); resolve({ changes: Number(result.changes) }); } });
+    }) } as unknown as RepositoryDatabase;
+    sqlite.exec("CREATE TABLE workout_session (id TEXT, status TEXT, actual_snapshot_json TEXT, updated_at TEXT); INSERT INTO workout_session VALUES ('draft', 'IN_PROGRESS', '{}', '')");
+    const service = new WorkoutService(db);
+    const draft = { id: 'draft', exercises: [], safetyModifications: [] } as import('./workout-service').WorkoutDraft;
+    const older = service.saveDraftSnapshot(draft);
+    const newer = service.saveDraftSnapshot({ ...draft, activeExerciseIndex: 2 });
+    await Promise.resolve();
+    expect(writes).toHaveLength(1);
+    writes[0]!.finish();
+    await older;
+    await Promise.resolve();
+    expect(writes).toHaveLength(2);
+    writes[1]!.finish();
+    await newer;
+    expect(JSON.parse(String(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()!.actual_snapshot_json)).activeExerciseIndex).toBe(2);
+    sqlite.close();
+  });
+
   it('prefills, autosaves, and restores an active workout', async () => {
     const sqlite = new DatabaseSync(':memory:');
     const db = { exec: (sql: string) => sqlite.exec(sql), runAsync: async (sql: string, ...params: SqlValue[]) => { const result = sqlite.prepare(sql).run(...params); return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) }; }, getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never, getAllAsync: async (sql: string, ...params: SqlValue[]) => sqlite.prepare(sql).all(...params) as never, withTransactionAsync: async (task: () => Promise<void>) => { sqlite.exec('BEGIN'); try { await task(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; } } } as RepositoryDatabase & MigrationDatabase;
