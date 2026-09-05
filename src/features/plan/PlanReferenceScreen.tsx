@@ -45,12 +45,13 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [planningSettings, setPlanningSettings] = useState<TrainingSettings>(defaultSettings);
   const [reviewEligible, setReviewEligible] = useState(false);
   useEffect(() => {
+    if (!focused) return;
     let live = true;
     Promise.all([programs.listCycleSnapshots(), programs.getActiveCycleId(), programs.listInvalidSessionReferences?.() ?? Promise.resolve([])]).then(([storedCycles, activeId, invalid]) => {
       if (live) { setCycles(storedCycles); setActive(activeId); setInvalidSessions(invalid); }
     });
     return () => { live = false; };
-  }, [programs]);
+  }, [programs, focused]);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(async () => {

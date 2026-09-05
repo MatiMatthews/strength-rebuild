@@ -14,6 +14,26 @@ import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 describe('PlanReferenceScreen', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('refreshes recorded-session protection when returning to Plan', async () => {
+    const reference = { cycleId: 'legacy', sessionPlanId: 'future', weekIndex: 1, dayIndex: 1, invalidExerciseIds: ['missing'], unstarted: true };
+    const inventory = jest.fn().mockResolvedValue([reference]);
+    const programs: PlanPrograms = {
+      activateCycle: jest.fn(), createPlan: jest.fn(), previewLegacyReplacement: jest.fn(),
+      listCycleSnapshots: jest.fn().mockResolvedValue([]), getActiveCycleId: jest.fn().mockResolvedValue('legacy'),
+      listInvalidSessionReferences: inventory,
+    };
+    const view = await render(<PlanReferenceScreen programs={programs} focused />);
+    await view.findByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' });
+    await view.rerender(<PlanReferenceScreen programs={programs} focused={false} />);
+    inventory.mockResolvedValue([{ ...reference, unstarted: false }]);
+    await view.rerender(<PlanReferenceScreen programs={programs} focused />);
+    await view.findByText('Sesiones iniciadas o cerradas con referencias originales: 1. No se sustituye el trabajo registrado.');
+    expect(view.queryByRole('button', { name: 'Revisar referencias de semana 1, sesión 1' })).toBeNull();
+    expect(programs.createPlan).not.toHaveBeenCalled();
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+    expect(programs.previewLegacyReplacement).not.toHaveBeenCalled();
+  });
+
   it('reloads compatible choices after returning from settings without writing plans', async () => {
     const programs: PlanPrograms = {
       activateCycle: jest.fn(), createPlan: jest.fn(), previewLegacyReplacement: jest.fn(),
