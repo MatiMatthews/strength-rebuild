@@ -46,7 +46,9 @@ test('supported schedule and decimal increments save atomically into the next pr
   const fresh = preview.sessionSnapshots.filter(row => !oldIds.has(row.id)).map(row => JSON.parse(String(row.snapshot_json)));
   expect(new Set(fresh.map(session => session.day))).toEqual(new Set(['tuesday', 'thursday', 'saturday']));
   const loads = fresh.flatMap(session => session.exercises).filter(exercise => exercise.calculatedLoad !== undefined).map(exercise => exercise.calculatedLoad);
-  expect(loads).toContain(43.5);
+  // The existing strength policy uses 80% of the synthetic 60 kg reference: 48 kg.
+  // A 7.25 kg increment rounds that target to 50.75 kg, rather than the default 47.5 kg.
+  expect(loads).toContain(50.75);
   expect(loads.every(load => load % 7.25 === 0)).toBe(true);
   await page.close();
   const reopened = await context.newPage(); await reopened.goto('/settings');
