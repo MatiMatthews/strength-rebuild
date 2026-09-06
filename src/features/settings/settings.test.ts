@@ -58,3 +58,8 @@ describe('catalog-valid settings', () => {
     expect(JSON.stringify(saved)).toBe(before);
   });
 });
+
+
+it.each([[1], [1, 1, 3], [1, 3, 5, 7], [1, 3.5, 5], [0, 3, 5], [1, 3, 8], [1, NaN, 5]])('rejects unsupported schedule %j before a plan can consume it', (...schedule) => {
+  expect(validateSettings({ ...defaultSettings, schedule })).toMatchObject({ success: false });
+});

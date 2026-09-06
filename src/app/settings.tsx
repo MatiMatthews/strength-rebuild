@@ -6,17 +6,14 @@ import { useDataServices } from '@/data/repositories/provider';
 import { ActionButton, AppText, Screen } from '@/design-system/v2.2/primitives';
 import { AppMasthead } from '@/design-system/v2.2/components';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
-import { resolveTrainingSettings, type TrainingSettings } from '@/features/settings/settings';
+import { createSettingsStore } from '@/features/settings/settings-store';
 
 export default function SettingsRoute() {
   const navigation = useNavigation();
   const { srScenario } = useLocalSearchParams<{ srScenario?: string }>();
   const { repositories } = useDataServices();
   const headingRef = useRef<View>(null);
-  const settingsStore = useMemo(() => ({
-    load: async () => resolveTrainingSettings((await repositories.settings.get<TrainingSettings>('training-settings'))?.value),
-    save: (value: TrainingSettings) => repositories.settings.save({ id: 'training-settings', key: 'training-settings', value }),
-  }), [repositories]);
+  const settingsStore = useMemo(() => createSettingsStore(repositories.settings), [repositories]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {

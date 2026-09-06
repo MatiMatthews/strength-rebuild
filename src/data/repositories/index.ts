@@ -44,6 +44,20 @@ export class SettingRepository {
     );
   }
 
+  /** One conditional statement: stale editors cannot overwrite another writer. */
+  async compareAndSave<T>(setting: Setting<T>, expected: T | null): Promise<boolean> {
+    const timestamp = this.now();
+    const result = expected === null
+      ? await this.db.runAsync(
+        `INSERT INTO app_setting (id, schema_version, created_at, updated_at, key, value_json)
+         VALUES (?, 1, ?, ?, ?, ?) ON CONFLICT(key) DO NOTHING`,
+        setting.id, timestamp, timestamp, setting.key, JSON.stringify(setting.value))
+      : await this.db.runAsync(
+        'UPDATE app_setting SET value_json = ?, updated_at = ? WHERE key = ? AND value_json = ?',
+        JSON.stringify(setting.value), timestamp, setting.key, JSON.stringify(expected));
+    return result.changes === 1;
+  }
+
   async get<T = unknown>(key: string): Promise<Setting<T> | null> {
     const row = await this.db.getFirstAsync<SettingRow>('SELECT * FROM app_setting WHERE key = ?', key);
     return row ? this.map<T>(row) : null;
