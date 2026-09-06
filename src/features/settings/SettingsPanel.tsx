@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ActionButton, AppText, FeedbackBanner, TextField } from '@/design-system/v2.2/primitives';
@@ -15,30 +15,59 @@ const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 export function SettingsPanel({ scenario, store }: { scenario?: 'settings-validation' | undefined; store: SettingsStore }) {
   const theme = useAppTheme();
   const [settings, setSettings] = useState<TrainingSettings>(defaultSettings);
+  const [baseline, setBaseline] = useState<TrainingSettings | null>(null);
+  const [increments, setIncrements] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [feedback, setFeedback] = useState<{ message: string; danger?: boolean; requirementIndex?: number } | null>(null);
-  useEffect(() => { store.load().then((saved) => {
-    if (scenario === 'settings-validation') {
-      setSettings({ ...saved, increments: [] });
-      setFeedback({ danger: true, message: 'Añade al menos un incremento positivo.' });
-    } else setSettings(saved);
-  }); }, [scenario, store]);
+  useEffect(() => {
+    let live = true;
+    store.load().then((saved) => {
+      if (!live) return;
+      setBaseline(saved);
+      setSettings(saved);
+      setIncrements(scenario === 'settings-validation' ? [] : saved.increments.map(String));
+      if (scenario === 'settings-validation') setFeedback({ danger: true, message: 'Añade al menos un incremento positivo.' });
+    }).catch(() => { if (live) setFeedback({ danger: true, message: 'No se pudo cargar la configuración. Vuelve a abrir esta pantalla.' }); });
+    return () => { live = false; };
+  }, [scenario, store]);
   const toggle = (key: 'equipment' | 'schedule', value: string | number) => setSettings((current) => {
     const values = current[key] as (string | number)[];
     return { ...current, [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort() } as TrainingSettings;
   });
   const save = async () => {
-    const result = validateSettings(settings);
+    if (!baseline || saving.current) return;
+    // Keep the editing text untouched until the user commits a complete decimal.
+    if (!increments.length || increments.some((text) => !/^\d+(?:[.,]\d+)?$/.test(text.trim()) || !Number.isFinite(Number(text.replace(',', '.'))) || Number(text.replace(',', '.')) <= 0)) {
+      setFeedback({ danger: true, message: 'Escribe cada incremento como un número positivo completo (por ejemplo, 1,25).' });
+      return;
+    }
+    const next = { ...settings, increments: increments.map((text) => Number(text.trim().replace(',', '.'))) };
+    const result = validateSettings(next);
     if (!result.success) return setFeedback({ danger: true, message: result.message, ...(result.requirementIndex !== undefined ? { requirementIndex: result.requirementIndex } : {}) });
-    await store.save(settings); setFeedback({ message: 'Configuración guardada en este dispositivo.' });
+    saving.current = true; setBusy(true);
+    try {
+      await store.save(next, baseline);
+      setSettings(next); setBaseline(next);
+      setFeedback({ message: 'Configuración guardada en este dispositivo.' });
+    } catch (error) {
+      setFeedback({ danger: true, message: error instanceof Error && error.name === 'SettingsConflictError' ? error.message : 'No se pudo guardar la configuración. Tus cambios siguen aquí; vuelve a intentar guardar.' });
+    } finally { saving.current = false; setBusy(false); }
   };
-  const choice = (label: string, selected: boolean, onPress: () => void, accessibilityLabel: string) => <ChoiceControl accessibilityLabel={accessibilityLabel} label={label} onPress={onPress} selected={selected} />;
+  const choice = (label: string, selected: boolean, onPress: () => void, accessibilityLabel: string) => <ChoiceControl accessibilityLabel={accessibilityLabel} label={label} onPress={() => { if (!saving.current && baseline) onPress(); }} selected={selected} />;
   return <View testID="settings-operational-tools" style={[styles.tools, { borderColor: theme.border }]}>
     <OperationalSection label="Configuración local">
     <AppText color="muted">Equipo, horario y requisitos se guardan sin conexión y se aplican al próximo plan.</AppText>
     <AppText variant="label">Unidad de carga</AppText><View style={styles.wrap}>{(['kg', 'lb'] as const).map((unit) => <View key={unit}>{choice(unit.toUpperCase(), settings.units === unit, () => setSettings({ ...settings, units: unit }), `Usar ${unit}`)}</View>)}</View>
-    <TextField accessibilityLabel="Incrementos disponibles" label="Incrementos disponibles" onChangeText={(text) => setSettings({ ...settings, increments: text.split(',').map(Number).filter(Number.isFinite) })} value={settings.increments.join(', ')} />
+    <AppText variant="label">Incrementos disponibles ({settings.units})</AppText>
+    <AppText color="muted">Un valor por campo. Usa punto o coma decimal; el próximo plan redondea al menor incremento.</AppText>
+    {increments.map((text, index) => <View key={index} style={{ gap: spacing.sm }}>
+      <TextField editable={!busy && !!baseline} accessibilityLabel={`Incremento ${index + 1}`} label={`Incremento ${index + 1} (${settings.units})`} keyboardType="decimal-pad" onChangeText={(value) => setIncrements((current) => current.map((item, i) => i === index ? value : item))} value={text} />
+      <ActionButton accessibilityLabel={`Quitar incremento ${index + 1}`} disabled={busy} onPress={() => setIncrements((current) => current.filter((_, i) => i !== index))} tone="secondary">Quitar incremento {index + 1}</ActionButton>
+    </View>)}
+    <ActionButton accessibilityLabel="Añadir incremento" disabled={busy || !baseline} onPress={() => setIncrements((current) => [...current, ''])} tone="secondary">Añadir incremento</ActionButton>
     <AppText variant="label">Equipo disponible</AppText><View style={styles.wrap}>{equipment.map((item) => <View key={item}>{choice(item, settings.equipment.includes(item), () => toggle('equipment', item), `Alternar equipo ${item}`)}</View>)}</View>
-    <AppText variant="label">Días de entrenamiento</AppText><View style={styles.wrap}>{days.map((day, index) => <View key={day}>{choice(day, settings.schedule.includes(index + 1), () => toggle('schedule', index + 1), `Alternar día ${day}`)}</View>)}</View>
+    <AppText variant="label">Días de entrenamiento · elige tres</AppText><View style={styles.wrap}>{days.map((day, index) => <View key={day}>{choice(day, settings.schedule.includes(index + 1), () => toggle('schedule', index + 1), `Alternar día ${day}`)}</View>)}</View>
     <AppText variant="label">Requisitos del plan</AppText>{settings.requirements.map((requirement, index) => {
       const options = exerciseCatalog.filter((item) => item.pattern !== 'review');
       const choices = requirement.kind === 'EXACT' ? options.map((item) => ({ value: item.id, label: item.name }))
@@ -48,14 +77,14 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
         setFeedback(null);
       };
       return <View key={index} style={{ gap: spacing.sm }}>
-        <TextField accessibilityLabel={`Requisito ${requirement.kind}`} label={requirement.kind} onChangeText={updateRequirement} value={requirement.value} />
+        <TextField editable={!busy && !!baseline} accessibilityLabel={`Requisito ${requirement.kind}`} label={requirement.kind} onChangeText={updateRequirement} value={requirement.value} />
         {feedback?.requirementIndex === index ? <FeedbackBanner message={feedback.message} tone="danger" /> : null}
         <View style={styles.wrap}>{choices.map((option) => <View key={option.value}>{choice(option.label, requirement.value === option.value, () => updateRequirement(option.value), `Elegir ${option.label} para requisito ${index + 1}`)}</View>)}</View>
       </View>;
     })}
-    <TextField accessibilityLabel="Restricciones activas" label="Restricciones activas (separadas por coma)" onChangeText={(text) => setSettings({ ...settings, restrictions: text.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="Ej. sin impacto" value={settings.restrictions.join(', ')} />
+    <TextField editable={!busy && !!baseline} accessibilityLabel="Restricciones activas" label="Restricciones activas (separadas por coma)" onChangeText={(text) => setSettings({ ...settings, restrictions: text.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="Ej. sin impacto" value={settings.restrictions.join(', ')} />
     {feedback && feedback.requirementIndex === undefined ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
-    <ActionButton accessibilityLabel="Guardar configuración local" onPress={save}>Guardar configuración</ActionButton>
+    <ActionButton accessibilityLabel="Guardar configuración local" disabled={busy || !baseline} onPress={save}>Guardar configuración</ActionButton>
     </OperationalSection>
   </View>;
 }

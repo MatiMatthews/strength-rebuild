@@ -31,7 +31,7 @@ export interface PlanPrograms {
 }
 
 const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia', transition: 'Transición obligatoria', reentry: 'Reentrada' } as const;
-const dayNames: Record<string, string> = { monday: 'Lunes', wednesday: 'Miércoles', friday: 'Viernes' };
+const dayNames: Record<string, string> = { monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles', thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo' };
 const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
 export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {

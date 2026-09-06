@@ -44,7 +44,7 @@ export function resolveTrainingSettings(persisted: TrainingSettings | null | und
 export function validateSettings(settings: TrainingSettings): { success: true } | { success: false; message: string; requirementIndex?: number } {
   if (!settings.increments.length || settings.increments.some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Añade al menos un incremento positivo.' };
   if (!settings.equipment.length) return { success: false, message: 'Selecciona al menos un equipo disponible.' };
-  if (!settings.schedule.length || settings.schedule.some((day) => day < 1 || day > 7)) return { success: false, message: 'Selecciona al menos un día válido.' };
+  if (settings.schedule.length !== 3 || new Set(settings.schedule).size !== 3 || settings.schedule.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) return { success: false, message: 'Selecciona exactamente tres días distintos de entrenamiento.' };
   if (!settings.requirements.length) return { success: false, message: 'Completa al menos un requisito.' };
   if (settings.profile && Object.values(settings.profile).some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Las referencias de fuerza deben ser positivas.' };
   try {
@@ -58,5 +58,5 @@ export function validateSettings(settings: TrainingSettings): { success: true } 
 
 export interface SettingsStore {
   load(): Promise<TrainingSettings>;
-  save(settings: TrainingSettings): Promise<void>;
+  save(settings: TrainingSettings, baseline?: TrainingSettings): Promise<void>;
 }

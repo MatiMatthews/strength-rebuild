@@ -1,3 +1,5 @@
+import { createSettingsStore } from '../../../src/features/settings/settings-store';
+import { defaultSettings } from '../../../src/features/settings/settings';
 import { DatabaseSync } from 'node:sqlite';
 
 import { UnitOfWork } from '../../../src/application/transactions/unit-of-work';
@@ -65,6 +67,50 @@ describe('typed SQLite repositories', () => {
     })).rejects.toThrow('reject transaction');
 
     expect(await repositories.settings.list()).toEqual([]);
+    close();
+  });
+});
+
+
+describe('training settings transactions', () => {
+  it('merges deliberate edits, preserves concurrent unrelated data and rejects conflicting changes', async () => {
+    const { db, close } = database(); await migrateDatabase(db);
+    const { settings } = createRepositories(db); const store = createSettingsStore(settings);
+    await settings.save({ id: 'training-settings', key: 'training-settings', value: defaultSettings });
+    const baseline = await store.load();
+    const concurrent = { ...baseline, equipment: [...baseline.equipment, 'Bandas'], profile: { ...baseline.profile!, benchPressReference: 87 } };
+    await settings.save({ id: 'training-settings', key: 'training-settings', value: concurrent });
+    await store.save({ ...baseline, schedule: [2, 4, 6], increments: [2.75, 5] }, baseline);
+    const saved = await store.load();
+    expect(saved).toEqual({ ...concurrent, schedule: [2, 4, 6], increments: [2.75, 5] });
+    await expect(store.save({ ...baseline, schedule: [3, 5, 7] }, baseline)).rejects.toThrow(/cambió/);
+    expect(await store.load()).toEqual(saved);
+    await settings.save({ id: 'training-settings', key: 'training-settings', value: { ...saved, units: 'lb' } });
+    await expect(store.save({ ...saved, increments: [10] }, saved)).rejects.toThrow(/cambió/);
+    expect(await store.load()).toEqual({ ...saved, units: 'lb' });
+    close();
+  });
+
+  it('rejects invalid edits and a write racing the final conditional statement without partial writes', async () => {
+    const { db, close } = database(); await migrateDatabase(db);
+    const { settings } = createRepositories(db); const store = createSettingsStore(settings);
+    await store.save(defaultSettings);
+    const before = await settings.list();
+    // The real SQLite trigger simulates a storage rejection of the atomic statement.
+    await db.runAsync("CREATE TRIGGER reject_settings BEFORE UPDATE ON app_setting BEGIN SELECT RAISE(ABORT, 'storage failure'); END");
+    await expect(store.save({ ...defaultSettings, schedule: [2, 4, 6] }, defaultSettings)).rejects.toThrow('storage failure');
+    expect(await settings.list()).toEqual(before);
+    await db.runAsync('DROP TRIGGER reject_settings');
+    await expect(store.save({ ...defaultSettings, schedule: [1] }, defaultSettings)).rejects.toThrow(/tres/);
+    expect(await settings.list()).toEqual(before);
+    const concurrent = { ...defaultSettings, restrictions: ['concurrent'] };
+    const compare = settings.compareAndSave.bind(settings);
+    jest.spyOn(settings, 'compareAndSave').mockImplementationOnce(async (value, expected) => {
+      await settings.save({ id: 'training-settings', key: 'training-settings', value: concurrent });
+      return compare(value, expected);
+    });
+    await expect(store.save({ ...defaultSettings, schedule: [2, 4, 6] }, defaultSettings)).rejects.toThrow(/cambió/);
+    expect(await store.load()).toEqual(concurrent);
     close();
   });
 });
