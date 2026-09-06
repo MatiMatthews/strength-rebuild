@@ -24,14 +24,14 @@ test('supported schedule and decimal increments save atomically into the next pr
     await expect(page.getByLabel('Incremento 1', { exact: true })).toHaveValue(value);
     expect(await readPersistence(page, info)).toEqual(original);
   }
-  await page.getByLabel('Incremento 1', { exact: true }).fill('7,5');
+  await page.getByLabel('Incremento 1', { exact: true }).fill('7,25');
   await page.getByRole('button', { name: 'Quitar incremento 3', exact: true }).click();
   await page.getByRole('button', { name: 'Quitar incremento 2', exact: true }).click();
   await save.click();
   await expect(page.getByText('Configuración guardada en este dispositivo.')).toBeVisible();
   const saved = await readPersistence(page, info);
   const training = saved.settings.find(row => row.key === 'training-settings');
-  expect(JSON.parse(String(training!.value_json))).toMatchObject({ schedule: [2, 4, 6], increments: [7.5], units: 'kg' });
+  expect(JSON.parse(String(training!.value_json))).toMatchObject({ schedule: [2, 4, 6], increments: [7.25], units: 'kg' });
   expect(saved.templates).toEqual(original.templates);
   expect(saved.sessionSnapshots).toEqual(original.sessionSnapshots);
   expect(saved.workouts).toEqual(original.workouts);
@@ -46,10 +46,10 @@ test('supported schedule and decimal increments save atomically into the next pr
   const fresh = preview.sessionSnapshots.filter(row => !oldIds.has(row.id)).map(row => JSON.parse(String(row.snapshot_json)));
   expect(new Set(fresh.map(session => session.day))).toEqual(new Set(['tuesday', 'thursday', 'saturday']));
   const loads = fresh.flatMap(session => session.exercises).filter(exercise => exercise.calculatedLoad !== undefined).map(exercise => exercise.calculatedLoad);
-  expect(loads.length).toBeGreaterThan(0);
-  expect(loads.every(load => load % 7.5 === 0)).toBe(true);
+  expect(loads).toContain(43.5);
+  expect(loads.every(load => load % 7.25 === 0)).toBe(true);
   await page.close();
   const reopened = await context.newPage(); await reopened.goto('/settings');
-  await expect(reopened.getByLabel('Incremento 1', { exact: true })).toHaveValue('7.5');
+  await expect(reopened.getByLabel('Incremento 1', { exact: true })).toHaveValue('7.25');
   expect(await readPersistence(reopened, info)).toEqual(preview);
 });
