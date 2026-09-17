@@ -107,7 +107,7 @@ test(`${state}: canonical exercises and legacy references remain truthful withou
       await expect(app.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
       const saved = await readPersistence(app, info);
       expect({ ...saved, settings: before.settings }).toEqual(before);
-      expect(JSON.parse(String(saved.settings.find(row => row.key === 'training-settings')!.value_json)).equipment.includes('Bandas')).toBe(attempt === 1);
+      expect(JSON.parse(String(saved.settings.find(row => row.key === 'training-settings')!.value_json)).equipment.includes('bands')).toBe(attempt === 1);
       before = saved;
     }
     await app.getByRole('button', { name: 'Volver a Hoy', exact: true }).click();

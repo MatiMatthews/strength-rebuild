@@ -47,6 +47,11 @@ export class SettingRepository {
   /** One conditional statement: stale editors cannot overwrite another writer. */
   async compareAndSave<T>(setting: Setting<T>, expected: T | null): Promise<boolean> {
     const timestamp = this.now();
+    // Imported JSON may use whitespace or numeric formatting that differs from
+    // JSON.stringify. Compare parsed values, then guard the exact source bytes
+    // in the UPDATE so a writer racing this read still cannot be overwritten.
+    const source = expected === null ? null : await this.db.getFirstAsync<SettingRow>('SELECT * FROM app_setting WHERE key = ?', setting.key);
+    if (expected !== null && (!source || JSON.stringify(JSON.parse(source.value_json)) !== JSON.stringify(expected))) return false;
     const result = expected === null
       ? await this.db.runAsync(
         `INSERT INTO app_setting (id, schema_version, created_at, updated_at, key, value_json)
@@ -54,7 +59,7 @@ export class SettingRepository {
         setting.id, timestamp, timestamp, setting.key, JSON.stringify(setting.value))
       : await this.db.runAsync(
         'UPDATE app_setting SET value_json = ?, updated_at = ? WHERE key = ? AND value_json = ?',
-        JSON.stringify(setting.value), timestamp, setting.key, JSON.stringify(expected));
+        JSON.stringify(setting.value), timestamp, setting.key, source!.value_json);
     return result.changes === 1;
   }
 

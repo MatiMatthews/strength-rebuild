@@ -114,3 +114,26 @@ describe('training settings transactions', () => {
     close();
   });
 });
+
+it('recovers formatted settings JSON and still rejects stale atomic writes', async () => {
+  const { db, close } = database(); await migrateDatabase(db);
+  const { settings } = createRepositories(db); const store = createSettingsStore(settings);
+  const old = { ...defaultSettings, equipment: ['unknown-device'] };
+  await settings.save({ id: 'training-settings', key: 'training-settings', value: old });
+  await db.runAsync('UPDATE app_setting SET value_json = ? WHERE key = ?', JSON.stringify(old, null, 2), 'training-settings');
+  const baseline = await store.load();
+  await store.save({ ...baseline, equipment: ['Barra', 'Banco'] }, baseline);
+  expect((await store.load()).equipment).toEqual(['Barra', 'Banco']);
+  expect(await settings.compareAndSave({ id: 'training-settings', key: 'training-settings', value: old }, baseline)).toBe(false);
+  expect((await store.load()).equipment).toEqual(['Barra', 'Banco']);
+  const current = await store.load();
+  const concurrent = { ...current, units: 'lb' as const };
+  const run = db.runAsync.bind(db);
+  jest.spyOn(db, 'runAsync').mockImplementationOnce(async (sql, ...params) => {
+    await run('UPDATE app_setting SET value_json = ? WHERE key = ?', JSON.stringify(concurrent), 'training-settings');
+    return run(sql, ...params);
+  });
+  expect(await settings.compareAndSave({ id: 'training-settings', key: 'training-settings', value: old }, current)).toBe(false);
+  expect(await store.load()).toEqual(concurrent);
+  close();
+});
