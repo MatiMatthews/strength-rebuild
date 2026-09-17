@@ -609,7 +609,12 @@ export function WorkoutReferenceScreen({
           ) : guidance ? (
             <ActionButton
               accessibilityLabel="Reemplazar ejercicio"
-              onPress={() => setReplacing(true)}
+              onPress={async () => {
+                try {
+                  if (settingsStore) setSettings(await settingsStore.load());
+                  setReplacing(true);
+                } catch { setError("No se pudieron cargar las preferencias. Vuelve a intentar abrir las alternativas."); }
+              }}
               tone="secondary"
             >
               Reemplazar ejercicio

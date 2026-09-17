@@ -1,13 +1,9 @@
 import { exerciseCatalog, type SeedExercise } from '../../data/seeds/exercises';
 import type { CyclePrescriptionRequest } from './generator';
 
-const equipmentAliases: Readonly<Record<string, string>> = {
-  Barra: 'barbell', Mancuernas: 'dumbbells', Banco: 'bench', Bandas: 'bands',
-};
-const requirementAliases: Readonly<Record<string, string>> = {
-  'PATTERN:Empuje horizontal': 'horizontal-push',
-  'CAPABILITY:Potencia de tren inferior': 'power',
-};
+import { catalogEquipment, normalizeEquipment, normalizeRequirement, restrictionLabels } from './catalog-options';
+
+export class CatalogConstraintError extends Error {}
 
 export class CatalogRequirementError extends Error {
   constructor(readonly requirementIndex: number, kind: string, value: string) {
@@ -17,9 +13,11 @@ export class CatalogRequirementError extends Error {
 
 /** Resolve user requirements before any plan writes; exact requests never substitute. */
 export function resolveCatalogRequirements(request: CyclePrescriptionRequest): readonly SeedExercise[] {
+  validateCatalogConstraints(request);
   const compatible = catalogCompatibility(request);
   return (request.requirements ?? []).map(({ kind, value }, index) => {
-    const normalized = requirementAliases[`${kind}:${value.trim()}`] ?? value.trim();
+    if (!['EXACT', 'PATTERN', 'CAPABILITY'].includes(kind)) throw new CatalogRequirementError(index, kind, value);
+    const normalized = normalizeRequirement(kind, value);
     const candidates = exerciseCatalog.filter((exercise) => {
       if (exercise.pattern === 'review') return false;
       const matches = kind === 'EXACT' ? exercise.id === normalized
@@ -36,12 +34,11 @@ export function resolveCatalogRequirements(request: CyclePrescriptionRequest): r
 
 /** Shared constraints for requested exercises and generated defaults. */
 export function catalogCompatibility(request: CyclePrescriptionRequest): (exercise: SeedExercise) => boolean {
-  const equipment = request.equipment && new Set(['bodyweight', ...request.equipment.map((item) => equipmentAliases[item] ?? item)]);
-  const input = request.restrictions;
-  const restrictions: readonly string[] = Array.isArray(input) ? input
-    : Object.entries(input ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
+  const equipment = request.equipment && new Set(['bodyweight', ...request.equipment.map(normalizeEquipment)]);
+  const restrictions = restrictionValues(request);
+  const unknownEquipment = request.equipment?.some(item => !catalogEquipment.includes(normalizeEquipment(item)));
   return (exercise) => {
-    return (!equipment || exercise.equipment.every((item) => equipment.has(item)))
+    return !unknownEquipment && (!equipment || exercise.equipment.every((item) => equipment.has(item)))
         && restrictions.every((value) => {
           const restriction = value.trim().toLowerCase();
           if (restriction === 'sin impacto') return exercise.impact === 'none';
@@ -51,4 +48,15 @@ export function catalogCompatibility(request: CyclePrescriptionRequest): (exerci
           return false;
         });
   };
+}
+
+function restrictionValues(request: CyclePrescriptionRequest): readonly string[] {
+  const input = request.restrictions;
+  return Array.isArray(input) ? input : Object.entries(input ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
+}
+function validateCatalogConstraints(request: CyclePrescriptionRequest) {
+  const unknownEquipment = request.equipment?.filter(item => !catalogEquipment.includes(normalizeEquipment(item)));
+  if (unknownEquipment?.length) throw new CatalogConstraintError(`Equipo no compatible: ${unknownEquipment.join(', ')}. Revisa las opciones guardadas y elige equipo del catálogo.`);
+  const unknownRestrictions = restrictionValues(request).filter(value => !Object.hasOwn(restrictionLabels, value.trim().toLowerCase()));
+  if (unknownRestrictions.length) throw new CatalogConstraintError(`Restricciones no compatibles: ${unknownRestrictions.join(', ')}. Revisa cada valor guardado antes de cambiarlo.`);
 }
