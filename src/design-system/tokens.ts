@@ -1,30 +1,6 @@
-export const palette = {
-  white: '#FFFFFF',
-  canvasLight: '#F6F7F8',
-  surfaceLight: '#FFFFFF',
-  surfaceMutedLight: '#EDF1F3',
-  textLight: '#11181C',
-  textMutedLight: '#52616B',
-  borderLight: '#D6DDE1',
-  canvasDark: '#101417',
-  surfaceDark: '#181D21',
-  surfaceMutedDark: '#22292E',
-  textDark: '#F4F7F8',
-  textMutedDark: '#BAC4CA',
-  borderDark: '#3A444B',
-  hypertrophy: '#087E6D',
-  hypertrophySoft: '#CFF3EB',
-  strength: '#175CD3',
-  strengthSoft: '#D8E6FF',
-  power: '#B5473F',
-  powerSoft: '#FFE0DD',
-  transition: '#805B00',
-  transitionSoft: '#FFF0C7',
-  stop: '#B42318',
-  stopSoft: '#FFE1DE',
-  success: '#08785F',
-  successSoft: '#D5F4EA',
-} as const;
+// Compatibility imports share the Athlete color authority. Layout migration is incremental.
+export { palette, lightTheme, darkTheme } from './v2.2/tokens';
+export type { AppTheme } from './v2.2/tokens';
 
 export const spacing = {
   xs: 4,
@@ -54,31 +30,3 @@ export const typography = {
   caption: { fontSize: 13, lineHeight: 18, fontWeight: '500' as const },
   numeric: { fontSize: 36, lineHeight: 40, fontWeight: '700' as const },
 } as const;
-
-export const lightTheme = {
-  accent: palette.strength,
-  dark: false,
-  canvas: palette.canvasLight,
-  surface: palette.surfaceLight,
-  surfaceMuted: palette.surfaceMutedLight,
-  text: palette.textLight,
-  textMuted: palette.textMutedLight,
-  border: palette.borderLight,
-  tabInactive: '#667782',
-  overlay: 'rgba(17, 24, 28, 0.58)',
-} as const;
-
-export const darkTheme = {
-  accent: '#6EA8FF',
-  dark: true,
-  canvas: palette.canvasDark,
-  surface: palette.surfaceDark,
-  surfaceMuted: palette.surfaceMutedDark,
-  text: palette.textDark,
-  textMuted: palette.textMutedDark,
-  border: palette.borderDark,
-  tabInactive: '#95A3AC',
-  overlay: 'rgba(0, 0, 0, 0.72)',
-} as const;
-
-export type AppTheme = typeof lightTheme | typeof darkTheme;

@@ -1,3 +1,4 @@
+import { inspectContent } from './content-contrast';
 import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, copyFileSync } from 'node:fs';
@@ -68,6 +69,12 @@ for (const [choice, label] of [['ACCEPTED', 'Aceptar propuesta semanal'], ['KEPT
   await expect(app.getByText('Revisión de semana 2', { exact: true })).toBeVisible();
   await app.getByRole('button', { name: 'Crear propuesta semanal', exact: true }).click();
   await expect(app.getByRole('button', { name: label!, exact: true })).toBeVisible();
+  if (choice === 'KEPT') {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await app.emulateMedia({ colorScheme });
+      await inspectContent(app, info, `${colorScheme}-weekly-review`);
+    }
+  }
   const before = await readPersistence(app, info);
   copyFileSync(info.outputPath('canonical.sqlite'), info.outputPath('pending-week-two.sqlite'));
   const proposal = before.proposals.find(row => row.policy_version === 'weekly-review-v1'); expect(proposal).toBeDefined();

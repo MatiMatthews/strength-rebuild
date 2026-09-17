@@ -169,7 +169,7 @@ export function TodayReferenceScreen({
               accessibilityLabel="Restricción activa"
               style={styles.restriction}
             >
-              <ShieldAlert color={palette.caution} size={24} />
+              <ShieldAlert color={theme.cautionText} size={24} />
               <View style={styles.flex}>
                 <Text style={[styles.heading, { color: theme.text }]}>Restricción activa</Text>
                 <Text style={[styles.body, { color: theme.textMuted }]}>

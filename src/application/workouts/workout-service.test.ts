@@ -55,6 +55,39 @@ describe('WorkoutService', () => {
     sqlite.close();
   });
 
+  it.each(['committed', 'not committed', 'external edit'] as const)('reconciles a timed-out checkpoint that was %s without bypassing revision guards', async outcome => {
+    const sqlite = new DatabaseSync(':memory:');
+    const run = (sql: string, ...params: SqlValue[]) => { const r = sqlite.prepare(sql).run(...params); return { changes: Number(r.changes), lastInsertRowId: Number(r.lastInsertRowid) }; };
+    const db = { exec: (sql: string) => sqlite.exec(sql), runAsync: async (sql: string, ...params: SqlValue[]) => run(sql, ...params),
+      getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never,
+      getAllAsync: async (sql: string, ...params: SqlValue[]) => sqlite.prepare(sql).all(...params) as never,
+      withTransactionAsync: async (task: () => Promise<void>) => { sqlite.exec('BEGIN'); try { await task(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; } },
+      runSync: (sql: string, ...params: SqlValue[]) => {
+        if (outcome !== 'not committed') run(sql, ...params);
+        if (outcome === 'external edit') sqlite.exec("UPDATE workout_session SET actual_snapshot_json = json_set(actual_snapshot_json, '$.revision', 99)");
+        throw new Error('Sync operation timeout');
+      },
+    } as RepositoryDatabase & MigrationDatabase;
+    await migrateDatabase(db);
+    const service = new WorkoutService(db);
+    const prescription = { dayIndex: 1, exercises: [{ exerciseId: 'press', requirement: { kind: 'EXACT', value: 'press' }, qualityStops: [], target: { sets: 1, reps: { min: 8, max: 10 }, rir: { min: 2, max: 3 }, load: 20 } }] } as unknown as TodayData['session'];
+    const draft = await service.startOrResume(prescription);
+    draft.exercises[0]!.sets[0]!.load = '60';
+    expect(service.saveDraftSnapshotBeforeProcessStop(draft)).toBe(false);
+    const saved = service.saveDraftSnapshot(draft);
+    if (outcome === 'external edit') {
+      await expect(saved).rejects.toThrow('La seguridad');
+      expect(JSON.parse(String(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()!.actual_snapshot_json)).revision).toBe(99);
+    } else {
+      await saved;
+      const completed = await service.completeSetAndSave(draft, 0, 0);
+      const reopened = await new WorkoutService(db).startOrResume(prescription);
+      expect(reopened).toEqual(completed);
+      expect(reopened.exercises[0]!.sets[0]).toMatchObject({ load: '60', completed: true });
+    }
+    sqlite.close();
+  });
+
   it('prefills, autosaves, and restores an active workout', async () => {
     const sqlite = new DatabaseSync(':memory:');
     const db = { exec: (sql: string) => sqlite.exec(sql), runAsync: async (sql: string, ...params: SqlValue[]) => { const result = sqlite.prepare(sql).run(...params); return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) }; }, getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never, getAllAsync: async (sql: string, ...params: SqlValue[]) => sqlite.prepare(sql).all(...params) as never, withTransactionAsync: async (task: () => Promise<void>) => { sqlite.exec('BEGIN'); try { await task(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; } } } as RepositoryDatabase & MigrationDatabase;

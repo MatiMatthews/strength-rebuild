@@ -50,6 +50,7 @@ function RootContent() {
                   animation: 'slide_from_right',
                   contentStyle: { backgroundColor: theme.canvas },
                   headerShown: false,
+                  statusBarStyle: theme.dark ? 'light' : 'dark',
                 }}
               >
                 <Stack.Screen name="(tabs)" />

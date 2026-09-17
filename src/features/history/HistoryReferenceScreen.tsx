@@ -1,3 +1,4 @@
+import { useAppTheme } from '@/design-system/use-app-theme';
 import {
   BarChart3,
   CalendarCheck2,
@@ -47,6 +48,7 @@ export function HistoryReferenceScreen({
   workouts: HistoryWorkouts;
   refreshKey?: number;
 }) {
+  const theme = useAppTheme();
   const [history, setHistory] = useState<WorkoutHistoryItem[]>([]);
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -180,7 +182,7 @@ export function HistoryReferenceScreen({
           </Panel>
           <View style={styles.metrics} testID="progress-metric-strip">
             <Panel style={styles.flex}>
-              <CalendarCheck2 color={palette.hypertrophy} size={22} />
+              <CalendarCheck2 color={theme.successText} size={22} />
               <AppText variant="title">
                 {Math.round(analytics.adherence * 100)}%
               </AppText>
@@ -189,7 +191,7 @@ export function HistoryReferenceScreen({
               </AppText>
             </Panel>
             <Panel style={styles.flex}>
-              <BarChart3 color={palette.strength} size={22} />
+              <BarChart3 color={theme.text} size={22} />
               <AppText variant="title">
                 {analytics.totalVolume > 0
                   ? `${analytics.totalVolume.toLocaleString("es-CL")} kg`
@@ -205,7 +207,7 @@ export function HistoryReferenceScreen({
               <View key={exercise.exerciseId}><OrdinalRow actionLabel="Ver resultado" detail={`${exercise.points.length} registros`} name={exerciseName(exercise.exerciseId)} onPress={() => undefined} ordinal={index + 1} /><Panel accent={palette.strength}>
                 <View style={styles.between}>
                   <View style={styles.inline}>
-                    <Dumbbell color={palette.strength} size={21} />
+                    <Dumbbell color={theme.text} size={21} />
                     <AppText variant="bodyStrong">
                       {exerciseName(exercise.exerciseId)}
                     </AppText>
@@ -378,7 +380,7 @@ export function HistoryReferenceScreen({
           ) : null}
           <Panel accent={palette.transition}>
             <View style={styles.inline}>
-              <ShieldCheck color={palette.transition} size={21} />
+              <ShieldCheck color={theme.cautionText} size={21} />
               <AppText variant="bodyStrong">Molestias y correcciones</AppText>
             </View>
             <AppText color="muted" variant="caption">

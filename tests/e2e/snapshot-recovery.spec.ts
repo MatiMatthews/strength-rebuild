@@ -2,20 +2,23 @@ import { test, expect } from '@playwright/test';
 import { startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
-test('a delayed synchronous SQLite preparation recovers without losing a set edit', async ({ page }, info) => {
-  await page.addInitScript(() => {
+for (const fault of ['delayed preparation', 'lost write acknowledgement'] as const) test(`SQLite ${fault} recovers without losing a set edit`, async ({ page }, info) => {
+  await page.addInitScript(fault => {
     const post = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, transfer) {
       const options = Array.isArray(transfer) ? { transfer } : transfer;
       const state = window as unknown as { delayNextPreparation: boolean };
-      if (state.delayNextPreparation && message.isSync && message.type === 'prepare') {
+      if (state.delayNextPreparation && message.isSync && message.type === (fault === 'delayed preparation' ? 'prepare' : 'run')) {
         state.delayNextPreparation = false;
-        setTimeout(() => post.call(this, message, options), 250);
+        if (fault === 'delayed preparation') setTimeout(() => post.call(this, message, options), 250);
+        // Execute the real write but lose its synchronous acknowledgement.
+        // The next FIFO worker read can verify whether it committed.
+        else post.call(this, { ...message, lockBuffer: new SharedArrayBuffer(4) }, options);
         return;
       }
       return post.call(this, message, options);
     };
-  });
+  }, fault);
   await startSyntheticWorkout(page);
   await page.evaluate(() => { (window as unknown as { delayNextPreparation: boolean }).delayNextPreparation = true; });
   await page.getByLabel('Carga de la serie 1', { exact: true }).fill('20');
