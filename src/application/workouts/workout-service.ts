@@ -1,3 +1,4 @@
+import { recoverWorkoutLoads } from './load-recovery';
 import { correctionLoad, isRecordedSet, projectHistory, type SetCorrection } from './history-corrections';
 import { enforceRestrictions, mutationSafety, readRestrictions } from './persisted-safety';
 import { effectiveSession } from '../programs/legacy-repair';
@@ -11,7 +12,7 @@ import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput }
 import type { SetDeletion } from './set-deletion';
 
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
-export interface WorkoutSetDraft { load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
+export interface WorkoutSetDraft { loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
 type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['role'];
 type PrescribedExercise = TodayData['session']['exercises'][number];
 export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
@@ -37,11 +38,11 @@ export interface PersistedReadiness {
   readonly sessionStatus: 'READY' | 'MODIFIED' | 'PATTERN_STOPPED' | 'ABORTED' | 'REVIEW_REQUIRED';
   readonly reviewRequired: boolean;
 }
-type ActiveRow = { id: string; actual_snapshot_json: string | null };
+type ActiveRow = { id: string; prescribed_snapshot_json: string; actual_snapshot_json: string | null };
 type SessionPlanRow = { id: string };
 type HistoryRow = { id: string; prescribed_snapshot_json: string; actual_snapshot_json: string; completed_at: string };
 type ProgressionContextRow = { cycle_id: string; snapshot_json: string };
-type CompletedActualRow = { id: string; actual_snapshot_json: string };
+type CompletedActualRow = { id: string; prescribed_snapshot_json: string; actual_snapshot_json: string };
 
 function validReadinessInput(input: ReadinessInput): boolean {
   return !(!input || !['stable', 'increasing', 'acute'].includes(input.painTrend)
@@ -166,10 +167,10 @@ export class WorkoutService {
     if (('session' in today && !sessionPlanId) || (sessionPlanId && !this.validReadiness(readiness, sessionPlanId))) throw new Error('Se requiere una decisión de preparación vigente para esta sesión');
     if (readiness && (readiness.sessionStatus === 'ABORTED' || readiness.sessionStatus === 'PATTERN_STOPPED' || readiness.sessionStatus === 'REVIEW_REQUIRED')) throw new Error('La decisión de preparación bloquea esta sesión');
     const restrictionSnapshot = await readRestrictions(this.db);
-    const active = await this.db.getFirstAsync<ActiveRow>("SELECT id, actual_snapshot_json FROM workout_session WHERE status = 'IN_PROGRESS' ORDER BY rowid DESC LIMIT 1");
+    const active = await this.db.getFirstAsync<ActiveRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json FROM workout_session WHERE status = 'IN_PROGRESS' ORDER BY rowid DESC LIMIT 1");
     if (active && !active.actual_snapshot_json) throw new Error('El entrenamiento guardado no tiene una copia verificable. Se conserva el registro original para revisión.');
     if (active?.actual_snapshot_json) {
-      const draft = JSON.parse(active.actual_snapshot_json) as WorkoutDraft;
+      const draft = recoverWorkoutLoads(JSON.parse(active.actual_snapshot_json) as WorkoutDraft, active.prescribed_snapshot_json ? JSON.parse(active.prescribed_snapshot_json) : undefined);
       if (sessionPlanId && (draft.sessionPlanId !== sessionPlanId || !this.validReadiness(draft.readiness, sessionPlanId!) || draft.readiness?.sessionStatus !== readiness?.sessionStatus)) throw new Error('El entrenamiento guardado no consume la preparación vigente');
       enforceRestrictions(draft, restrictionSnapshot);
       const wallClock = Date.parse(this.now());
@@ -186,6 +187,7 @@ export class WorkoutService {
         rir: String(exercise.target.rir.min), technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING',
       })),
     }));
+    exercises = recoverWorkoutLoads({ id, exercises, safetyModifications: [] }, session).exercises;
     if (readiness?.sessionStatus === 'MODIFIED') exercises = exercises.map((exercise) => ({
       ...exercise,
       sets: exercise.sets.slice(0, Math.max(1, exercise.sets.length - 1)).map((set) => ({ ...set, load: set.load ? String(Math.round(numeric(set.load) * 0.9 * 4) / 4) : set.load })),
@@ -267,10 +269,13 @@ export class WorkoutService {
 
   private immediateSnapshot(draft: WorkoutDraft): boolean {
     if (this.asyncSnapshots || this.queuedSnapshot) return false;
-    const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
+    // A read projection must not rewrite the immutable legacy source merely
+    // because the screen autosaves on mount or background.
+    const revision = (draft.revision ?? 0) + 1;
     const snapshot = JSON.stringify({ ...draft, revision });
     try {
       const guard = mutationSafety(draft);
+      if (this.checkpointContents.get(draft.id) === this.content(draft)) return this.repository.verifyUnchangedSnapshotSync(draft.id, guard);
       const saved = this.repository.updateActualSnapshotSync(draft.id, snapshot, guard);
       if (saved) { draft.revision = revision; this.checkpointContents.set(draft.id, this.content(draft)); }
       return saved;
@@ -312,6 +317,10 @@ export class WorkoutService {
       // A later queued edit may be based on this promoted revision while this write is still pending.
       queued.revision = draft.revision ?? 0;
       queued.lineage.add(queued.revision);
+      if (this.checkpointContents.get(draft.id) === this.content(draft)) {
+        await this.repository.verifyUnchangedSnapshot(draft.id, mutationSafety(draft));
+        return;
+      }
       const guard = mutationSafety(draft);
       const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
       await this.repository.updateActualSnapshot(draft.id, JSON.stringify({ ...draft, revision }), guard);
@@ -368,7 +377,7 @@ export class WorkoutService {
   async listHistory(): Promise<WorkoutHistoryItem[]> {
     const rows = await this.db.getAllAsync<HistoryRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE status = 'COMPLETED' ORDER BY completed_at DESC");
     return Promise.all(rows.map(async row => ({ id: row.id, completedAt: row.completed_at, prescribed: JSON.parse(row.prescribed_snapshot_json) as TodayData['session'],
-      ...await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft) })));
+      ...await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft, JSON.parse(row.prescribed_snapshot_json)) })));
   }
   private correctionBusy = false;
   async correctHistory(input: HistoryCorrectionInput): Promise<void> {
@@ -383,7 +392,7 @@ export class WorkoutService {
         const row = await this.db.getFirstAsync<HistoryRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE id = ? AND status = 'COMPLETED'", input.workoutId);
         if (!row) throw new Error('La sesión completada no existe.');
         const original = JSON.parse(row.actual_snapshot_json) as WorkoutDraft;
-        const {actual} = await projectHistory(this.db, row.id, original);
+        const {actual} = await projectHistory(this.db, row.id, original, JSON.parse(row.prescribed_snapshot_json));
         const matches = actual.exercises.map((e,i) => e.exerciseId === input.exerciseId ? i : -1).filter(i => i >= 0);
         const exerciseIndex = input.exerciseIndex ?? (matches.length === 1 ? matches[0] : -1);
         if (!Number.isInteger(exerciseIndex)) throw new Error('El ejercicio no se puede identificar.');
@@ -407,7 +416,7 @@ export class WorkoutService {
           (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
           VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v2', ?, ?, 1, ?)`,
           `history-correction-${sequence}`, timestamp, timestamp,
-          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, load:String(load)}}),
+          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, load:String(load), loadUnit:'kg'}}),
           JSON.stringify({originalSnapshotPreserved:true, correctedLoad:load}), timestamp);
       });
     } finally { this.correctionBusy = false; }
@@ -461,13 +470,13 @@ export class WorkoutService {
     if (!prescribed) return;
     const completedSets = actual.sets.filter((set) => set.disposition === 'COMPLETED');
     const history = await this.db.getAllAsync<CompletedActualRow>(
-      "SELECT id, actual_snapshot_json FROM workout_session WHERE status = 'COMPLETED' AND id <> ? ORDER BY completed_at DESC, rowid DESC",
+      "SELECT id, prescribed_snapshot_json, actual_snapshot_json FROM workout_session WHERE status = 'COMPLETED' AND id <> ? ORDER BY completed_at DESC, rowid DESC",
       draft.id,
     );
     let consecutiveSuccessfulExposures = 0;
     let consecutiveFailedExposures = 0;
     for (const row of history) {
-      const historical = (await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft)).actual.exercises
+      const historical = (await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft, JSON.parse(row.prescribed_snapshot_json))).actual.exercises
         .find((exercise) => exercise.exerciseId === actual.exerciseId);
       if (!historical) continue;
       const sets = historical.sets.filter((set) => set.disposition === 'COMPLETED');

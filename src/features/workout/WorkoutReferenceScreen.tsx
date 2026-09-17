@@ -719,7 +719,7 @@ export function WorkoutReferenceScreen({
                     label={`${field === "load" ? "Carga" : field === "reps" ? "Repeticiones" : "RIR"} de la serie ${index + 1}`}
                     visibleLabel={
                       field === "load"
-                        ? "Carga"
+                        ? "Carga (kg)"
                         : field === "reps"
                           ? "Reps"
                           : "RIR"

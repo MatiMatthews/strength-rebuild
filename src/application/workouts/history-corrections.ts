@@ -1,3 +1,5 @@
+import { canonicalSet, recoverWorkoutLoads } from './load-recovery';
+import type { TodayData } from '../programs/program-service';
 import type { RepositoryDatabase } from '../../data/repositories';
 import type { WorkoutDraft, WorkoutSetDraft } from './workout-service';
 
@@ -13,8 +15,9 @@ export function correctionLoad(value: string): number {
   return load;
 }
 interface EventRow { id: string; inputs_json: string; created_at: string; policy_version: string }
-export async function projectHistory(db: RepositoryDatabase, workoutId: string, original: WorkoutDraft) {
-  const actual = JSON.parse(JSON.stringify(original)) as WorkoutDraft;
+export async function projectHistory(db: RepositoryDatabase, workoutId: string, original: WorkoutDraft, prescribed?: TodayData['session']) {
+  const baseline = recoverWorkoutLoads(original, prescribed);
+  const actual = JSON.parse(JSON.stringify(baseline)) as WorkoutDraft;
   const corrections: SetCorrection[] = [];
   const rows = await db.getAllAsync<EventRow>("SELECT id, inputs_json, created_at, policy_version FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION' AND accepted = 1 ORDER BY created_at, id");
   const events = rows.map(row => ({row, input: JSON.parse(row.inputs_json)})).filter(e => e.input.workoutId === workoutId);
@@ -28,11 +31,15 @@ export async function projectHistory(db: RepositoryDatabase, workoutId: string, 
     const set = exercise?.sets[input.setIndex];
     // Never let a malformed or ambiguous legacy event change another set.
     if (!set || exercise?.exerciseId !== input.exerciseId || !Number.isInteger(input.setIndex) || !isRecordedSet(set)) throw new Error('Una corrección guardada no identifica una serie completada. El original se conserva.');
-    const load = correctionLoad(String(input.after?.load ?? ''));
+    correctionLoad(String(input.after?.load ?? ''));
+    // Legacy correction editors accepted kg. Do not inherit the prescription unit.
+    const corrected = canonicalSet({ ...set, loadUnit: undefined, ...input.after });
+    const load = correctionLoad(corrected.load);
     if (typeof input.reason !== 'string' || !input.reason.trim()) throw new Error('Una corrección guardada no tiene un motivo verificable.');
     corrections.push({id:row.id, order:corrections.length+1, exerciseId:input.exerciseId, exerciseIndex, setIndex:input.setIndex,
-      originalLoad:original.exercises[exerciseIndex]!.sets[input.setIndex]!.load, beforeLoad:set.load, afterLoad:String(load), reason:input.reason, decidedAt:row.created_at});
+      originalLoad:baseline.exercises[exerciseIndex]!.sets[input.setIndex]!.load, beforeLoad:set.load, afterLoad:String(load), reason:input.reason, decidedAt:row.created_at});
     set.load = String(load);
+    set.loadUnit = 'kg';
   }
   return {actual, corrections};
 }

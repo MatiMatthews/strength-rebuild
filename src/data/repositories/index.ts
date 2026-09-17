@@ -113,6 +113,22 @@ export class WorkoutRepository {
       actualSnapshot: row.actual_snapshot_json, completedAt: row.completed_at } : null;
   }
 
+  // Retain exact legacy bytes/timestamps while checking the same atomic safety
+  // guard as a save. SQLite reports the matched row even when values are equal.
+  async verifyUnchangedSnapshot(id: string, guard: { sql: string; params: SqlValue[] }) {
+    const result = await this.db.runAsync(`UPDATE workout_session SET actual_snapshot_json = actual_snapshot_json
+      WHERE id = ? AND status <> 'COMPLETED' ${guard.sql}`, id, ...guard.params);
+    await this.requireMutable(result, id, true);
+  }
+
+  verifyUnchangedSnapshotSync(id: string, guard: { sql: string; params: SqlValue[] }) {
+    if (!this.db.runSync) return false;
+    const result = this.db.runSync(`UPDATE workout_session SET actual_snapshot_json = actual_snapshot_json
+      WHERE id = ? AND status <> 'COMPLETED' ${guard.sql}`, id, ...guard.params);
+    if (result.changes === 0) throw new Error('La seguridad o el entrenamiento guardado cambió. Vuelve a Hoy para revisar la preparación y las restricciones. Tu trabajo guardado se conserva.');
+    return true;
+  }
+
   async updateActualSnapshot(id: string, snapshot: string, guard?: { sql: string; params: SqlValue[] }) {
     const result = await this.db.runAsync(
       `UPDATE workout_session SET actual_snapshot_json = ?, updated_at = ?
