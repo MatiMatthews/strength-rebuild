@@ -111,12 +111,13 @@ export function IconButton({ accessibilityLabel, disabled = false, icon: Icon, o
         styles.iconButton,
         {
           backgroundColor: selected ? palette.strengthSoft : theme.surfaceMuted,
-          borderColor: selected ? palette.strength : theme.border,
-          opacity: disabled ? 0.4 : pressed ? 0.72 : 1,
+          borderColor: selected ? palette.strength : theme.textMuted,
+          opacity: 1,
+          ...(pressed && !disabled ? { borderColor: theme.text, borderWidth: 2 } : {}),
         },
       ]}
     >
-      <Icon color={selected ? palette.strength : theme.text} size={22} strokeWidth={2.2} />
+      <Icon color={selected ? palette.strength : disabled ? theme.textMuted : theme.text} size={22} strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -145,9 +146,9 @@ export function ActionButton({
 }: ActionButtonProps) {
   const theme = useAppTheme();
   const backgroundColor =
-    tone === 'primary' ? palette.strength : tone === 'danger' ? palette.stopSoft : theme.surface;
-  const borderColor = tone === 'primary' ? palette.strength : tone === 'danger' ? palette.stop : theme.border;
-  const textColor = tone === 'primary' ? palette.white : tone === 'danger' ? palette.stop : theme.text;
+    disabled ? theme.surfaceMuted : tone === 'primary' ? palette.strength : tone === 'danger' ? palette.stopSoft : theme.surface;
+  const borderColor = disabled ? theme.textMuted : tone === 'primary' ? theme.text : tone === 'danger' ? palette.stop : theme.textMuted;
+  const textColor = disabled ? theme.textMuted : tone === 'primary' ? palette.white : tone === 'danger' ? palette.stop : theme.text;
 
   return (
     <Pressable
@@ -159,7 +160,7 @@ export function ActionButton({
       onPressIn={onPressIn}
       style={({ pressed }) => [
         styles.actionButton,
-        { backgroundColor, borderColor, opacity: disabled ? 0.45 : pressed ? 0.78 : 1 },
+        { backgroundColor, borderColor, opacity: 1, borderWidth: pressed && !disabled ? 2 : 1 },
       ]}
     >
       {Icon ? <Icon color={textColor} size={20} strokeWidth={2.3} /> : null}
@@ -212,8 +213,12 @@ export function ProgressBar({ accessibilityLabel, progress }: { accessibilityLab
   return (
     <View
       accessibilityLabel={accessibilityLabel}
+      accessible
       accessibilityRole="progressbar"
       accessibilityValue={{ max: 100, min: 0, now: Math.round(normalized * 100) }}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(normalized * 100)}
       style={[styles.progressTrack, { backgroundColor: theme.border }]}
     >
       <View style={[styles.progressFill, { width: `${normalized * 100}%` }]} />

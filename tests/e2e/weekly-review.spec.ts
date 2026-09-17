@@ -1,3 +1,4 @@
+import { isLastWorkoutExercise } from './setup';
 import { inspectContent } from './content-contrast';
 import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
@@ -59,7 +60,7 @@ for (const [choice, label] of [['ACCEPTED', 'Aceptar propuesta semanal'], ['KEPT
       await app.getByRole('button', { name: `Completar serie ${s}`, exact: true }).click();
     }
     const next = app.getByRole('button', { name: 'Siguiente ejercicio', exact: true });
-    if (await next.isDisabled()) break; await next.click();
+    if (await isLastWorkoutExercise(app)) break; await next.click();
   }
   await app.getByRole('button', { name: 'Revisar y terminar entrenamiento', exact: true }).click();
   await app.getByRole('button', { name: 'Confirmar fin de entrenamiento', exact: true }).click();

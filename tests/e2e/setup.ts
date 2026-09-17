@@ -20,3 +20,14 @@ export async function startSyntheticWorkout(page: Page) {
   await page.getByRole('button', { name: 'Confirmar preparación', exact: true }).click();
   await expect(page.getByTestId('workout-screen')).toBeVisible();
 }
+
+// A disabled Next command can mean a save is in progress. The production
+// progress rail, not transient button availability, identifies the final item.
+export async function isLastWorkoutExercise(page: Page) {
+  const rail = page.getByTestId('workout-sequence-rail');
+  const current = Number(await rail.getAttribute('aria-valuenow'));
+  const total = Number(await rail.getAttribute('aria-valuemax'));
+  expect(current).toBeGreaterThan(0);
+  expect(total).toBeGreaterThanOrEqual(current);
+  return current === total;
+}

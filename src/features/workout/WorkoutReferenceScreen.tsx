@@ -144,6 +144,9 @@ export function WorkoutReferenceScreen({
   );
   const [error, setError] = useState("");
   const [savingSet, setSavingSet] = useState(false);
+  const [savingNavigation, setSavingNavigation] = useState(false);
+  const [navigationError, setNavigationError] = useState("");
+  const navigationLock = useRef(false);
   const completionLock = useRef(false);
   const [replacing, setReplacing] = useState(false);
   const [showingGuidance, setShowingGuidance] = useState(false);
@@ -205,7 +208,7 @@ export function WorkoutReferenceScreen({
       );
   }, [programs, requireReadiness, workouts]);
   useEffect(() => {
-    if (!draft || !workouts || savingOmission || savingDeletion || savingSet || error) return;
+    if (!draft || !workouts || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
     const timer = setTimeout(
       () =>
         void workouts
@@ -214,7 +217,7 @@ export function WorkoutReferenceScreen({
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts, savingOmission, savingDeletion, savingSet, error]);
+  }, [draft, workouts, savingOmission, savingDeletion, savingSet, savingNavigation, navigationError, error]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -246,6 +249,20 @@ export function WorkoutReferenceScreen({
         <AppText>No hay ejercicios en esta sesión.</AppText>
       </Screen>
     );
+  const closeWorkout = async () => {
+    if (navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current) return;
+    navigationLock.current = true;
+    setSavingNavigation(true);
+    setNavigationError("");
+    try {
+      if (workouts && latestDraftRef.current) await workouts.saveDraftSnapshot(latestDraftRef.current);
+      onClose();
+    } catch {
+      navigationLock.current = false;
+      setSavingNavigation(false);
+      setNavigationError("No se pudo guardar antes de salir. Conservamos tus cambios; vuelve a intentar cerrar.");
+    }
+  };
   const change = (
     index: number,
     field: "load" | "reps" | "rir" | "notes",
@@ -441,8 +458,12 @@ export function WorkoutReferenceScreen({
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
-      <View style={styles.flex} pointerEvents={savingOmission || savingDeletion ? "none" : "auto"}>
+      <View collapsable={false} style={styles.flex} pointerEvents={savingOmission || savingDeletion || savingNavigation ? "none" : "auto"}>
       <Screen scrollRef={scrollRef} testID="workout-screen">
+        <View collapsable={false} style={{ display: navigationError || savingNavigation ? "flex" : "none" }} testID="workout-navigation-feedback">
+        {navigationError ? <AppText accessibilityRole="alert" color="danger">{navigationError}</AppText> : null}
+        {savingNavigation ? <AppText accessibilityLiveRegion="polite">Guardando antes de salir…</AppText> : null}
+        </View>
         {lastDeletion ? <Panel>
           <AppText>Serie {lastDeletion.setIndex + 1} eliminada · {exerciseName(lastDeletion.exerciseId)}</AppText>
           <ActionButton accessibilityLabel="Deshacer eliminación" disabled={savingDeletion} onPress={() => persistDeletion(lastDeletion.id)}>{savingDeletion ? "Guardando…" : "Deshacer"}</ActionButton>
@@ -454,7 +475,7 @@ export function WorkoutReferenceScreen({
               <View style={styles.between}>
                 <ActionButton
                   accessibilityLabel="Ejercicio anterior"
-                  disabled={exerciseIndex === 0}
+                  disabled={savingSet || savingNavigation || exerciseIndex === 0}
                   onPress={() =>
                     setExerciseIndex((index) => {
                       setSkipSetIndex(null);
@@ -474,7 +495,7 @@ export function WorkoutReferenceScreen({
                 </ActionButton>
                 <ActionButton
                   accessibilityLabel="Siguiente ejercicio"
-                  disabled={exerciseIndex === draft.exercises.length - 1}
+                  disabled={savingSet || savingNavigation || exerciseIndex === draft.exercises.length - 1}
                   onPress={() =>
                     setExerciseIndex((index) => {
                       setSkipSetIndex(null);
@@ -523,7 +544,8 @@ export function WorkoutReferenceScreen({
               ? exerciseName(draft.exercises[exerciseIndex + 1]!.exerciseId)
               : undefined
           }
-          onClose={onClose}
+          busy={savingSet || savingOmission || savingDeletion || savingNavigation}
+          onClose={() => void closeWorkout()}
           onShowGuidance={() => setShowingGuidance(true)}
           total={draft.exercises.length}
         >

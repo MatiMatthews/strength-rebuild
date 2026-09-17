@@ -33,7 +33,7 @@ export function MetricStrip({ metrics }: { metrics: readonly Metric[] }) {
 
 export function CycleProgressBand({ current, total }: { current: number; total: number }) {
   const safeTotal = Math.max(1, total); const safeCurrent = Math.max(1, Math.min(current, safeTotal));
-  return <View accessibilityLabel={`Semana ${safeCurrent} de ${safeTotal}`} accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: safeTotal, now: safeCurrent }} style={styles.progressBand}>{Array.from({ length: safeTotal }, (_, index) => <View key={index} style={[styles.progressStep, index < safeCurrent && styles.progressComplete, index === safeCurrent - 1 && styles.progressCurrent]} />)}</View>;
+  return <View accessibilityLabel={`Semana ${safeCurrent} de ${safeTotal}`} accessible accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: safeTotal, now: safeCurrent }} aria-valuemin={1} aria-valuemax={safeTotal} aria-valuenow={safeCurrent} style={styles.progressBand}>{Array.from({ length: safeTotal }, (_, index) => <View key={index} style={[styles.progressStep, index < safeCurrent && styles.progressComplete, index === safeCurrent - 1 && styles.progressCurrent]} />)}</View>;
 }
 
 export function StatusActionBand({ actionLabel, detail, onAction, title }: { actionLabel: string; detail?: string; onAction: () => void; title: string }) {
