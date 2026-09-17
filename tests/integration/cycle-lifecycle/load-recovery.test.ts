@@ -30,7 +30,7 @@ it('reopens an unchanged prescribed pound load as kilograms without rewriting so
 it('projects typed and legacy corrections in deterministic order, preserving event and original bytes',async()=>{
  const {db,sqlite}=await fixture();
  const original=await db.getAllAsync('SELECT * FROM workout_session');
- for(const [id,after] of [['a',{load:'80',loadUnit:'lb'}],['b',{load:'35'}]] as const){
+ for(const [id,after] of [['a',{load:'80',loadUnit:'lb'}],['b',{load:35}]] as const){
   await db.runAsync("INSERT INTO decision_log (id,schema_version,created_at,updated_at,decision_type,policy_version,inputs_json,output_json,accepted) VALUES (?,1,'now','now','HISTORY_CORRECTION','history-correction-v2','{}','{}',1)",id);
   await db.runAsync('UPDATE decision_log SET inputs_json=? WHERE id=?',JSON.stringify({workoutId:'pounds',exerciseId:'barbell-bench-press',setIndex:0,reason:'Checked',after}),id);
  }

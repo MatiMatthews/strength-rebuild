@@ -33,7 +33,7 @@ export async function projectHistory(db: RepositoryDatabase, workoutId: string, 
     if (!set || exercise?.exerciseId !== input.exerciseId || !Number.isInteger(input.setIndex) || !isRecordedSet(set)) throw new Error('Una corrección guardada no identifica una serie completada. El original se conserva.');
     correctionLoad(String(input.after?.load ?? ''));
     // Legacy correction editors accepted kg. Do not inherit the prescription unit.
-    const corrected = canonicalSet({ ...set, loadUnit: undefined, ...input.after });
+    const corrected = canonicalSet({ ...set, loadUnit: undefined, ...input.after, load: String(input.after.load) });
     const load = correctionLoad(corrected.load);
     if (typeof input.reason !== 'string' || !input.reason.trim()) throw new Error('Una corrección guardada no tiene un motivo verificable.');
     corrections.push({id:row.id, order:corrections.length+1, exerciseId:input.exerciseId, exerciseIndex, setIndex:input.setIndex,
