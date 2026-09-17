@@ -1,4 +1,5 @@
-import { CatalogRequirementError, resolveCatalogRequirements } from '../../domain/prescriptions/catalog-requirements';
+import { generatePrescription, InsufficientWorkoutError } from '../../domain/prescriptions/generator';
+import { CatalogConstraintError, CatalogRequirementError } from '../../domain/prescriptions/catalog-requirements';
 
 export type UnitSystem = 'kg' | 'lb';
 export type RequirementKind = 'EXACT' | 'PATTERN' | 'CAPABILITY';
@@ -48,8 +49,9 @@ export function validateSettings(settings: TrainingSettings): { success: true } 
   if (!settings.requirements.length) return { success: false, message: 'Completa al menos un requisito.' };
   if (settings.profile && Object.values(settings.profile).some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Las referencias de fuerza deben ser positivas.' };
   try {
-    resolveCatalogRequirements({ id: 'settings-validation', type: 'strength', weeks: 1, equipment: settings.equipment, requirements: settings.requirements, restrictions: settings.restrictions });
+    generatePrescription({ id: 'settings-validation', type: 'strength', weeks: 1, equipment: settings.equipment, requirements: settings.requirements, restrictions: settings.restrictions });
   } catch (error) {
+    if (error instanceof CatalogConstraintError || error instanceof InsufficientWorkoutError) return { success: false, message: error.message };
     if (error instanceof CatalogRequirementError) return { success: false, message: error.message, requirementIndex: error.requirementIndex };
     throw error;
   }

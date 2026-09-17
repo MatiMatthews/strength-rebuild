@@ -7,9 +7,8 @@ import { radii, spacing , borders, palette as brandPalette, spacing as brandSpac
 import { useAppTheme } from '@/design-system/use-app-theme';
 import { defaultSettings, validateSettings, type SettingsStore, type TrainingSettings } from './settings';
 
-import { exerciseCatalog } from '../../data/seeds/exercises';
+import { catalogEquipment, equipmentLabels, normalizeEquipment, normalizeRequirement, requirementKinds, requirementOptions, restrictionLabels } from '../../domain/prescriptions/catalog-options';
 
-const equipment = ['Barra', 'Mancuernas', 'Banco', 'Bandas'];
 const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 export function SettingsPanel({ scenario, store }: { scenario?: 'settings-validation' | undefined; store: SettingsStore }) {
@@ -31,7 +30,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
     }).catch(() => { if (live) setFeedback({ danger: true, message: 'No se pudo cargar la configuración. Vuelve a abrir esta pantalla.' }); });
     return () => { live = false; };
   }, [scenario, store]);
-  const toggle = (key: 'equipment' | 'schedule', value: string | number) => setSettings((current) => {
+  const toggle = (key: 'equipment' | 'schedule' | 'restrictions', value: string | number) => setSettings((current) => {
     const values = current[key] as (string | number)[];
     return { ...current, [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort() } as TrainingSettings;
   });
@@ -66,23 +65,41 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       <ActionButton accessibilityLabel={`Quitar incremento ${index + 1}`} disabled={busy} onPress={() => setIncrements((current) => current.filter((_, i) => i !== index))} tone="secondary">Quitar incremento {index + 1}</ActionButton>
     </View>)}
     <ActionButton accessibilityLabel="Añadir incremento" disabled={busy || !baseline} onPress={() => setIncrements((current) => [...current, ''])} tone="secondary">Añadir incremento</ActionButton>
-    <AppText variant="label">Equipo disponible</AppText><View style={styles.wrap}>{equipment.map((item) => <View key={item}>{choice(item, settings.equipment.includes(item), () => toggle('equipment', item), `Alternar equipo ${item}`)}</View>)}</View>
+    <AppText variant="label">Equipo disponible</AppText>
+    <AppText color="muted">El peso corporal está siempre disponible. Marca solo el equipo al que tienes acceso.</AppText>
+    <View style={styles.wrap}>{catalogEquipment.filter(item => item !== 'bodyweight').map((item) => <View key={item}>{choice(equipmentLabels[item] ?? item, settings.equipment.some(value => normalizeEquipment(value) === item), () => setSettings(current => ({ ...current, equipment: current.equipment.some(value => normalizeEquipment(value) === item) ? current.equipment.filter(value => normalizeEquipment(value) !== item) : [...current.equipment, item] })), `Alternar equipo ${equipmentLabels[item] ?? item}`)}</View>)}</View>
+    {settings.equipment.filter(item => !catalogEquipment.includes(normalizeEquipment(item))).map((item, index) => <View key={index}>
+      <AppText>Equipo guardado no compatible: {item}</AppText>
+      <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => setSettings(current => ({ ...current, equipment: current.equipment.filter(value => value !== item) }))}>Quitar equipo guardado: {item}</ActionButton>
+    </View>)}
+    {choice('Solo peso corporal', settings.equipment.length === 1 && settings.equipment[0] === 'bodyweight', () => setSettings(current => ({ ...current, equipment: ['bodyweight'] })), 'Usar solo peso corporal')}
     <AppText variant="label">Días de entrenamiento · elige tres</AppText><View style={styles.wrap}>{days.map((day, index) => <View key={day}>{choice(day, settings.schedule.includes(index + 1), () => toggle('schedule', index + 1), `Alternar día ${day}`)}</View>)}</View>
-    <AppText variant="label">Requisitos del plan</AppText>{settings.requirements.map((requirement, index) => {
-      const options = exerciseCatalog.filter((item) => item.pattern !== 'review');
-      const choices = requirement.kind === 'EXACT' ? options.map((item) => ({ value: item.id, label: item.name }))
-        : [...new Set(options.flatMap((item) => requirement.kind === 'PATTERN' ? [item.pattern] : item.tags))].map((value) => ({ value, label: value }));
-      const updateRequirement = (value: string) => {
-        setSettings({ ...settings, requirements: settings.requirements.map((item, itemIndex) => itemIndex === index ? { ...item, value } : item) });
+    <AppText variant="label">Requisitos del plan</AppText>
+    <AppText color="muted">Cada requisito debe ser compatible con el equipo y las restricciones. No cambiamos automáticamente un ejercicio concreto por otro.</AppText>
+    {settings.requirements.map((requirement, index) => {
+      const options = requirementOptions(requirement.kind);
+      const selected = options.find(option => option.value === normalizeRequirement(requirement.kind, requirement.value));
+      const updateRequirement = (value: string, kind = requirement.kind) => {
+        setSettings(current => ({ ...current, requirements: current.requirements.map((item, itemIndex) => itemIndex === index ? { kind, value } : item) }));
         setFeedback(null);
       };
       return <View key={index} style={{ gap: spacing.sm }}>
-        <TextField editable={!busy && !!baseline} accessibilityLabel={`Requisito ${requirement.kind}`} label={requirement.kind} onChangeText={updateRequirement} value={requirement.value} />
+        <AppText variant="label">Requisito {index + 1} · {requirementKinds[requirement.kind] ?? 'Tipo no compatible'}</AppText>
+        <AppText>{selected ? `Seleccionado: ${selected.label}` : `Valor guardado sin resolver: ${requirement.kind} / ${requirement.value || '(sin selección)'}`}</AppText>
+        <View style={styles.wrap}>{Object.entries(requirementKinds).map(([kind, label]) => <View key={kind}>{choice(label, requirement.kind === kind, () => updateRequirement('', kind as typeof requirement.kind), `Tipo ${label} para requisito ${index + 1}`)}</View>)}</View>
         {feedback?.requirementIndex === index ? <FeedbackBanner message={feedback.message} tone="danger" /> : null}
-        <View style={styles.wrap}>{choices.map((option) => <View key={option.value}>{choice(option.label, requirement.value === option.value, () => updateRequirement(option.value), `Elegir ${option.label} para requisito ${index + 1}`)}</View>)}</View>
+        <View style={styles.wrap}>{options.map((option) => <View key={option.value}>{choice(option.label, selected?.value === option.value, () => updateRequirement(option.value), `Elegir ${option.label} para requisito ${index + 1}`)}</View>)}</View>
+        <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => { setSettings(current => ({ ...current, requirements: current.requirements.filter((_, i) => i !== index) })); setFeedback(null); }}>Quitar requisito {index + 1}</ActionButton>
       </View>;
     })}
-    <TextField editable={!busy && !!baseline} accessibilityLabel="Restricciones activas" label="Restricciones activas (separadas por coma)" onChangeText={(text) => setSettings({ ...settings, restrictions: text.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="Ej. sin impacto" value={settings.restrictions.join(', ')} />
+    <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => setSettings(current => ({ ...current, requirements: [...current.requirements, { kind: 'EXACT', value: '' }] }))}>Añadir requisito</ActionButton>
+    <AppText variant="label">Restricciones activas</AppText>
+    <AppText color="muted">Conserva las restricciones que necesitas. Las opciones limitan el catálogo; no sustituyen una evaluación profesional.</AppText>
+    <View style={styles.wrap}>{Object.entries(restrictionLabels).map(([value, label]) => <View key={value}>{choice(label, settings.restrictions.some(item => item.trim().toLowerCase() === value), () => setSettings(current => ({ ...current, restrictions: current.restrictions.some(item => item.trim().toLowerCase() === value) ? current.restrictions.filter(item => item.trim().toLowerCase() !== value) : [...current.restrictions, value] })), `Alternar restricción ${label}`)}</View>)}</View>
+    {settings.restrictions.filter(item => !Object.hasOwn(restrictionLabels, item.trim().toLowerCase())).map((item, index) => <View key={index}>
+      <AppText>Restricción guardada no compatible: {item}. Revísala antes de quitarla; no podemos interpretarla automáticamente.</AppText>
+      <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => setSettings(current => ({ ...current, restrictions: current.restrictions.filter(value => value !== item) }))}>Quitar restricción guardada: {item}</ActionButton>
+    </View>)}
     {feedback && feedback.requirementIndex === undefined ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
     <ActionButton accessibilityLabel="Guardar configuración local" disabled={busy || !baseline} onPress={save}>Guardar configuración</ActionButton>
     </OperationalSection>

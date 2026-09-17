@@ -63,3 +63,14 @@ describe('catalog-valid settings', () => {
 it.each([[1], [1, 1, 3], [1, 3, 5, 7], [1, 3.5, 5], [0, 3, 5], [1, 3, 8], [1, NaN, 5]])('rejects unsupported schedule %j before a plan can consume it', (...schedule) => {
   expect(validateSettings({ ...defaultSettings, schedule })).toMatchObject({ success: false });
 });
+
+it.each([
+  { ...defaultSettings, equipment: [...defaultSettings.equipment, 'unknown-device'] },
+  { ...defaultSettings, requirements: [{ kind: 'UNKNOWN', value: 'power' }] },
+  { ...defaultSettings, restrictions: ['unknown-restriction'] },
+  { ...defaultSettings, equipment: ['bodyweight'], requirements: [{ kind: 'CAPABILITY', value: 'mobility' }], restrictions: ['abdominal'] },
+])('rejects unsupported or infeasible catalog constraints without changing them', (settings) => {
+  const before = JSON.stringify(settings);
+  expect(validateSettings(settings as typeof defaultSettings)).toMatchObject({ success: false });
+  expect(JSON.stringify(settings)).toBe(before);
+});

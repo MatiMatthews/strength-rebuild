@@ -1,3 +1,5 @@
+import { catalogCompatibility } from '@/domain/prescriptions/catalog-requirements';
+import { normalizeEquipment } from '@/domain/prescriptions/catalog-options';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -26,10 +28,6 @@ const approvedAnchorEquivalents: Readonly<Record<string, readonly string[]>> = {
   'barbell-bench-press': ['incline-dumbbell-press'],
   'strict-pull-up': ['neutral-lat-pulldown'],
 };
-const equipmentIds: Readonly<Record<string, readonly string[]>> = {
-  Barra: ['barbell'], Mancuernas: ['dumbbells'], Banco: ['bench', 'incline-bench'], Bandas: ['bands'],
-};
-
 export function exerciseName(id: string) { return exerciseCatalog.find((item) => item.id === id)?.name ?? id; }
 
 export function ReplacementSheet({ exerciseId, requirement, onCancel, onConfirm, settings = defaultSettings }: {
@@ -40,11 +38,11 @@ export function ReplacementSheet({ exerciseId, requirement, onCancel, onConfirm,
   const [candidate, setCandidate] = useState<SeedExercise | null>(null);
   const [visibleMediaId, setVisibleMediaId] = useState<string | null>(null);
   const original = exerciseCatalog.find((item) => item.id === exerciseId);
-  const ranked = useMemo(() => original && reason ? rankSubstitutions(exerciseCatalog, {
+  const ranked = useMemo(() => original && reason ? rankSubstitutions(exerciseCatalog.filter(exercise => exercise.id === exerciseId || catalogCompatibility({ id: 'alternatives', type: 'strength', weeks: 1, equipment: settings.equipment, restrictions: settings.restrictions })(exercise)), {
     originalExerciseId: exerciseId,
     requirement: { type: requirement, value: requirement === 'PATTERN' ? original.pattern : requirement === 'CAPABILITY' ? original.tags[0] ?? original.pattern : exerciseId },
     reason,
-    availableEquipment: settings.equipment.flatMap((item) => equipmentIds[item] ?? [item]),
+    availableEquipment: ['bodyweight', ...settings.equipment.map(normalizeEquipment)],
     skillLevel: 'advanced', restrictions: {
       maxImpact: settings.restrictions.includes('no-impact') ? 'none' : 'high',
       maxBraceDemand: settings.restrictions.includes('no-high-brace-demand') ? 'low' : 'high',

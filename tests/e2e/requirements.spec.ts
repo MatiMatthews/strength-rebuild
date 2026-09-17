@@ -10,52 +10,50 @@ test('requirement fields reject invalid drafts without changing saved settings o
   await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
   const before = await readPersistence(page, info);
   const cases = [
-    { kind: 'EXACT', value: 'barbell-bench-press', choice: 'Press banca' },
-    { kind: 'PATTERN', value: 'horizontal-push', choice: 'horizontal-push' },
-    { kind: 'CAPABILITY', value: 'power', choice: 'power' },
+    { kind: 'EXACT', value: 'barbell-bench-press', choice: 'Press banca', type: 'Ejercicio concreto' },
+    { kind: 'PATTERN', value: 'horizontal-push', choice: 'Empuje horizontal', type: 'Patrón de movimiento' },
+    { kind: 'CAPABILITY', value: 'power', choice: 'Potencia', type: 'Capacidad o grupo muscular' },
   ];
   for (const [index, requirement] of cases.entries()) {
-    const field = page.getByLabel(`Requisito ${requirement.kind}`, { exact: true });
-    for (const invalid of ['missing-catalog-option', '']) {
-      await field.fill(invalid);
-      await save.click();
-      await expect(page.getByRole('alert').filter({ hasText: `Requisito ${index + 1} (` }), 'Invalid requirement must identify its field').toBeVisible();
-      await expect(field).toHaveValue(invalid);
-      expect(await readPersistence(page, info), 'Rejected drafts must not write any canonical rows').toEqual(before);
-    }
+    // Changing a requirement type explicitly creates an unresolved draft.
+    await page.getByLabel(`Tipo ${requirement.type} para requisito ${index + 1}`, { exact: true }).click();
+    await save.click();
+    await expect(page.getByRole('alert').filter({ hasText: `Requisito ${index + 1} (` })).toBeVisible();
+    expect(await readPersistence(page, info)).toEqual(before);
     await page.getByLabel(`Elegir ${requirement.choice} para requisito ${index + 1}`, { exact: true }).click();
-    await expect(field).toHaveValue(requirement.value);
+    await expect(page.getByText(`Seleccionado: ${requirement.choice}`, { exact: true })).toBeVisible();
   }
   await page.getByLabel('Alternar equipo Banco', { exact: true }).click();
   await save.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Requisito 1 (' }), 'Missing equipment must reject the exact requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
   await page.getByLabel('Alternar equipo Banco', { exact: true }).click();
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('Sin impacto');
+  await page.getByLabel('Alternar restricción Sin impacto', { exact: true }).click();
   await save.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Requisito 3 (' }), 'Impact restriction must reject the power requirement').toBeVisible();
   expect(await readPersistence(page, info)).toEqual(before);
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('Lumbar');
+  await page.getByLabel('Alternar restricción Sin impacto', { exact: true }).click();
+  await page.getByLabel('Alternar restricción Demanda lumbar baja', { exact: true }).click();
   await save.click();
   await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
   const accepted = await readPersistence(page, info);
   const settings = JSON.parse(String(accepted.settings.find(row => row.key === 'training-settings')?.value_json));
   expect(settings.requirements).toEqual(cases.map(({ kind, value }) => ({ kind, value })));
-  expect(settings.restrictions).toEqual(['Lumbar']);
+  expect(settings.restrictions).toEqual(['lumbar']);
   expect(accepted.cycles).toEqual(before.cycles);
   expect(accepted.templates).toEqual(before.templates);
   expect(accepted.sessionSnapshots).toEqual(before.sessionSnapshots);
   await page.close();
   const reopened = await context.newPage();
   await reopened.goto('/settings');
-  for (const requirement of cases) await expect(reopened.getByLabel(`Requisito ${requirement.kind}`, { exact: true })).toHaveValue(requirement.value);
-  await expect(reopened.getByLabel('Restricciones activas', { exact: true })).toHaveValue('Lumbar');
+  for (const requirement of cases) await expect(reopened.getByText(`Seleccionado: ${requirement.choice}`, { exact: true })).toBeVisible();
+  await expect(reopened.getByLabel('Alternar restricción Demanda lumbar baja', { exact: true })).toHaveAttribute('aria-checked', 'true');
   expect(await readPersistence(reopened, info)).toEqual(accepted);
 });
 
 for (const scenario of [
-  { name: 'original choices', choices: ['Press banca', 'horizontal-push', 'power'], ids: ['barbell-bench-press', 'barbell-bench-press', 'low-volume-jump'], names: ['Press banca', 'Salto de bajo volumen'] },
-  { name: 'multiple compatible candidates', choices: ['Press banca', 'mobility', 'core'], ids: ['barbell-bench-press', 'hip-mobility', 'bird-dog'], names: ['Press banca', 'Movilidad de cadera', 'Bird-dog'] },
+  { name: 'original choices', choices: ['Press banca', 'Empuje horizontal', 'Potencia'], ids: ['barbell-bench-press', 'barbell-bench-press', 'low-volume-jump'], names: ['Press banca', 'Salto de bajo volumen'] },
+  { name: 'multiple compatible candidates', choices: ['Press banca', 'Movilidad', 'Tronco'], ids: ['barbell-bench-press', 'hip-mobility', 'bird-dog'], names: ['Press banca', 'Movilidad de cadera', 'Bird-dog'] },
 ]) {
 test(`chosen requirement kinds retain catalog prescriptions from preview through activation and reopen: ${scenario.name}`, async ({ page, context }, info) => {
   await page.goto('/settings');
@@ -63,7 +61,7 @@ test(`chosen requirement kinds retain catalog prescriptions from preview through
   for (const [index, choice] of choices.entries()) {
     await page.getByLabel(`Elegir ${choice} para requisito ${index + 1}`, { exact: true }).click();
   }
-  await page.getByLabel('Restricciones activas', { exact: true }).fill('Lumbar');
+  await page.getByLabel('Alternar restricción Demanda lumbar baja', { exact: true }).click();
   await page.getByRole('button', { name: 'Guardar configuración local', exact: true }).click();
   await expect(page.getByText('Configuración guardada en este dispositivo.', { exact: true })).toBeVisible();
   await page.goto('/plan');

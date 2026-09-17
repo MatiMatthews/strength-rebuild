@@ -1,3 +1,4 @@
+import { defaultSettings } from '@/features/settings/settings';
 import { fireEvent, render } from '@testing-library/react-native';
 import { readFileSync } from 'node:fs';
 
@@ -158,7 +159,8 @@ describe('Workout reference state', () => {
   });
 
   it('selects a replacement reason, explains compatible results, and confirms an anchor', async () => {
-    const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} />);
+    const settingsStore = { load: async () => ({ ...defaultSettings, equipment: [...defaultSettings.equipment, 'incline-bench'] }), save: async () => undefined };
+    const screen = await render(<WorkoutReferenceScreen settingsStore={settingsStore} onClose={() => undefined} />);
 
     await fireEvent.press(screen.getByLabelText('Reemplazar ejercicio'));
     expect(screen.getByText('¿Por qué necesitas un reemplazo?')).toBeOnTheScreen();
