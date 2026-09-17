@@ -39,6 +39,6 @@ export const typography = {
   numeric: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 40, lineHeight: 40, fontWeight: '800' as const, letterSpacing: 0 },
 } as const;
 
-export const lightTheme = { accent: palette.ink, dark: false, canvas: palette.paper, surface: palette.surface, surfaceMuted: palette.paper, text: palette.ink, textMuted: palette.steel, border: palette.line, tabInactive: palette.steel, overlay: 'rgba(9, 11, 12, 0.58)' } as const;
-export const darkTheme = { accent: palette.signal, dark: true, canvas: palette.graphite, surface: palette.graphite, surfaceMuted: palette.ink, text: palette.paper, textMuted: palette.line, border: palette.steel, tabInactive: palette.line, overlay: 'rgba(0, 0, 0, 0.72)' } as const;
+export const lightTheme = { accent: palette.ink, dark: false, dangerText: palette.danger, cautionText: palette.caution, successText: palette.success, canvas: palette.paper, surface: palette.surface, surfaceMuted: palette.paper, text: palette.ink, textMuted: palette.steel, border: palette.line, tabInactive: palette.steel, overlay: 'rgba(9, 11, 12, 0.58)' } as const;
+export const darkTheme = { accent: palette.signal, dark: true, dangerText: palette.stopSoft, cautionText: palette.transitionSoft, successText: palette.successSoft, canvas: palette.graphite, surface: palette.graphite, surfaceMuted: palette.ink, text: palette.paper, textMuted: palette.line, border: palette.steel, tabInactive: palette.line, overlay: 'rgba(0, 0, 0, 0.72)' } as const;
 export type AppTheme = typeof lightTheme | typeof darkTheme;

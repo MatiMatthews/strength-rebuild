@@ -262,14 +262,16 @@ export class WorkoutService {
 
   private snapshotQueue: Promise<void> = Promise.resolve();
   private asyncSnapshots = false;
+  private uncertainSnapshot: { draft: WorkoutDraft; snapshot: string; revision: number } | undefined;
   private queuedSnapshot: { draft: WorkoutDraft; revision: number; lineage: Set<number>; saved: boolean } | undefined;
 
   private immediateSnapshot(draft: WorkoutDraft): boolean {
     if (this.asyncSnapshots || this.queuedSnapshot) return false;
+    const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
+    const snapshot = JSON.stringify({ ...draft, revision });
     try {
       const guard = mutationSafety(draft);
-      const revision = (draft.revision ?? 0) + (this.checkpointContents.get(draft.id) === this.content(draft) ? 0 : 1);
-      const saved = this.repository.updateActualSnapshotSync(draft.id, JSON.stringify({ ...draft, revision }), guard);
+      const saved = this.repository.updateActualSnapshotSync(draft.id, snapshot, guard);
       if (saved) { draft.revision = revision; this.checkpointContents.set(draft.id, this.content(draft)); }
       return saved;
     }
@@ -278,6 +280,7 @@ export class WorkoutService {
       // subsequent edits on one FIFO queue so an older async save cannot win.
       if (error instanceof Error && error.message === 'Sync operation timeout') {
         this.asyncSnapshots = true;
+        this.uncertainSnapshot = { draft, snapshot, revision };
         return false;
       }
       throw error;
@@ -294,6 +297,17 @@ export class WorkoutService {
     if (predecessor?.draft.id === draft.id) for (const revision of predecessor.lineage) queued.lineage.add(revision);
     this.queuedSnapshot = queued;
     const pending = this.snapshotQueue.then(async () => {
+      const uncertain = this.uncertainSnapshot;
+      if (uncertain) {
+        // A worker timeout is not a rollback. A FIFO read observes the result of
+        // the attempted write; only its exact snapshot can promote our revision.
+        const stored = await this.repository.get(uncertain.draft.id);
+        if (stored?.actualSnapshot === uncertain.snapshot) {
+          uncertain.draft.revision = uncertain.revision;
+          this.checkpointContents.set(uncertain.draft.id, this.content(JSON.parse(uncertain.snapshot) as WorkoutDraft));
+        }
+        this.uncertainSnapshot = undefined;
+      }
       if (predecessor?.saved && predecessor.draft.id === draft.id && predecessor.lineage.has(queued.revision)) draft.revision = predecessor.draft.revision ?? 0;
       // A later queued edit may be based on this promoted revision while this write is still pending.
       queued.revision = draft.revision ?? 0;

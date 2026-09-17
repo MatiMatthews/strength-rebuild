@@ -36,7 +36,7 @@ export function AppText({
   const theme = useAppTheme();
   const textColor = {
     accent: theme.accent,
-    danger: palette.stop,
+    danger: theme.dangerText,
     default: theme.text,
     inverse: palette.white,
     muted: theme.textMuted,
@@ -253,12 +253,11 @@ export function TextField({ error, label, style, ...props }: TextFieldProps) {
 }
 
 export function FeedbackBanner({ message, tone = 'success' }: { message: string; tone?: 'success' | 'caution' | 'danger' }) {
-  const theme = useAppTheme();
   const danger = tone === 'danger';
   const caution = tone === 'caution';
   const backgroundColor = danger ? palette.stopSoft : caution ? palette.transitionSoft : palette.successSoft;
   const borderColor = danger ? palette.stop : caution ? palette.transition : palette.success;
-  const textColor = danger ? palette.stop : caution ? palette.transition : theme.dark ? theme.text : palette.success;
+  const textColor = danger ? palette.stop : caution ? palette.transition : palette.success;
   return (
     <View
       accessible
