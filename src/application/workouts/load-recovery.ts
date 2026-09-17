@@ -48,6 +48,7 @@ export function recoverWorkoutLoads(original: WorkoutDraft, prescribed?: TodayDa
   if (result.setDeletions) result.setDeletions = result.setDeletions.map(deletion => {
     const exercise = original.exercises[deletion.exerciseIndex];
     const evidence = exercise?.exerciseId === deletion.exerciseId && deletion.set.load.trim() && deletion.set.loadUnit === undefined
+      && original.exercises.filter(e => e.exerciseId === exercise.exerciseId && (!prescribed?.blocks || e.blockRole === exercise.blockRole)).length === 1
       ? prescriptionUnit(exercise, deletion.set, deletion.setIndex, prescribed) : undefined;
     return { ...deletion, set: canonicalSet(deletion.set, evidence) };
   });

@@ -35,6 +35,8 @@ it('rejects unknown explicit units instead of silently applying kg',()=>{
 it('restores deleted sets in the same canonical unit as resumed sets',()=>{
  const draft=structuredClone(original);draft.setDeletions=[{id:1,exerciseIndex:0,exerciseId:'barbell-bench-press',setIndex:0,set}];
  expect(recoverWorkoutLoads(draft,prescribed).setDeletions![0]!.set.load).toBe('45.359237');
+ draft.exercises.push(structuredClone(draft.exercises[0]!));
+ expect(recoverWorkoutLoads(draft,prescribed).setDeletions![0]!.set.load).toBe('100');
 });
 
 it('normalizes the editing unit even when a typed legacy load is empty',()=>{
