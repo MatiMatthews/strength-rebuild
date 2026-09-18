@@ -1,6 +1,6 @@
 import { composeLegacyRepairs, type RepairAudit } from '../programs/repair-projection';
 import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex } from '@noble/hashes/utils';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import type { RepositoryDatabase } from '../../data/repositories';
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import { proposeProgression, type ProgressionInput } from '../../domain/progression/propose-progression';
@@ -137,6 +137,12 @@ export async function effectiveWeeklySession(db: RepositoryDatabase,id:string,or
 }
 
 
+// SQLite BINARY order compares UTF-8 bytes, not locale-dependent text.
+const binaryOrder = (a: unknown, b: unknown) => {
+  const left=bytesToHex(utf8ToBytes(String(a))), right=bytesToHex(utf8ToBytes(String(b)));
+  return left<right ? -1 : left>right ? 1 : 0;
+};
+
 /** Portable audit validation runs before any restore write. Originals and proposal remain the authority. */
 export function validateWeeklyTargetsBackup(tables: Record<string, Record<string, unknown>[]>) {
   const invalid=()=>{throw new Error('Invalid weekly targets');};
@@ -172,7 +178,7 @@ export function validateWeeklyTargetsBackup(tables: Record<string, Record<string
       const week=tables.training_week?.find(w=>w.id===original?.training_week_id);
       if(!original || original.snapshot_json!==session.snapshot_json || week?.cycle_id!==input.cycleId || week?.week_index!==input.weekIndex+1 || session.started!==0 || session.status!=='PLANNED') invalid();
       const bound=(tables.decision_log ?? []).filter(r=>r.policy_version==='legacy-prescription-repair-v1' && r.accepted===1 && JSON.parse(String(r.inputs_json)).sessionPlanId===session.id)
-        .sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
+        .sort((a,b)=>binaryOrder(a.created_at,b.created_at) || binaryOrder(a.id,b.id))
         .map(r=>({id:String(r.id),created_at:String(r.created_at),inputs_json:String(r.inputs_json),output_json:String(r.output_json)}));
       let effective=JSON.parse(session.snapshot_json);
       if (bound.length || session.repairs || session.effective_snapshot_json) {

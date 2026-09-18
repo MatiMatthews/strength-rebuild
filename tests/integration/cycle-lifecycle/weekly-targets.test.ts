@@ -353,3 +353,22 @@ it.each(['source','repair-output','repair-order','missing-repair','duplicate','e
  await expect(backup.restore(JSON.stringify(forged),true)).rejects.toMatchObject({code:'corrupt'});
  expect(JSON.parse(await backup.export()).tables).toEqual(original.tables);sqlite.close();
 });
+
+it('roundtrips simultaneous repairs in SQLite audit order and rejects reordered bindings',async()=>{
+ const {db,sqlite,reviews,sessionId}=await repairedFixture();
+ const row=await db.getFirstAsync<{snapshot_json:string}>('SELECT snapshot_json FROM session_plan WHERE id=?',sessionId);
+ // Establish two unknown originals before either real repair is confirmed.
+ await db.runAsync("DELETE FROM decision_log WHERE policy_version='legacy-prescription-repair-v1'");
+ const source=JSON.parse(row!.snapshot_json);source.exercises[2].exerciseId='unknown-A';source.exercises.push({...source.exercises[2],exerciseId:'unknown-a'});
+ await db.runAsync('UPDATE session_plan SET snapshot_json=? WHERE id=?',JSON.stringify(source),sessionId);
+ const programs=new ProgramService(db,()=> '2020-01-01T00:00:00.000Z');
+ for(const [oldId,newId] of [['unknown-A','seated-dumbbell-press'],['unknown-a','dead-bug']]) await programs.applyLegacyRepair(await programs.prepareLegacyRepair(sessionId,oldId!,newId!));
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:'successful'});await reviews.decide(p.id,'ACCEPTED');
+ const backup=new BackupService(db);const before=JSON.parse(await backup.export());
+ await backup.restore(JSON.stringify(before),true);expect(JSON.parse(await backup.export()).tables).toEqual(before.tables);
+ const audit=before.tables.decision_log.find((r:any)=>r.decision_type==='WEEKLY_TARGETS');const output=JSON.parse(audit.output_json);output.sessions[0].repairs.reverse();audit.output_json=JSON.stringify(output);
+ const proposal=before.tables.progression_proposal.find((r:any)=>r.id===p.id);const stored=JSON.parse(proposal.output_json);stored.targets=output;proposal.output_json=JSON.stringify(stored);
+ const review=before.tables.decision_log.find((r:any)=>r.id===`decision-${p.id}`);const ri=JSON.parse(review.inputs_json);ri.originalOutput=proposal.output_json;review.inputs_json=JSON.stringify(ri);
+ const preserved=JSON.parse(await backup.export()).tables;
+ await expect(backup.restore(JSON.stringify(before),true)).rejects.toMatchObject({code:'corrupt'});expect(JSON.parse(await backup.export()).tables).toEqual(preserved);sqlite.close();
+});
