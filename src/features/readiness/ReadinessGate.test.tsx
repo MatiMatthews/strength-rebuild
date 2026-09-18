@@ -8,7 +8,7 @@ describe('ReadinessGate', () => {
     const onReady = jest.fn();
     const screen = await render(<ReadinessGate visible onClose={jest.fn()} onReady={onReady} />);
     const stable = screen.getByRole('radio', { name: 'Dolor de 0 a 2, estable' });
-    expect(StyleSheet.flatten(stable.props.style)).toMatchObject({ minHeight: 56, borderBottomWidth: 1 });
+    expect(StyleSheet.flatten(stable.props.style)).toMatchObject({ minHeight: 56, borderWidth: 1 });
     expect(stable.props.accessibilityState.checked).toBe(false);
 
     await fireEvent.press(stable);

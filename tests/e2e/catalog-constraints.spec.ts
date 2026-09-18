@@ -1,3 +1,5 @@
+import { fieldContrast } from './field-contrast';
+import { navigationContrast } from './navigation-contrast';
 import { test, expect } from '@playwright/test';
 import { readPersistence } from './persistence';
 import { startSyntheticWorkout } from './setup';
@@ -22,6 +24,7 @@ test('catalog constraints reject infeasible workouts and refresh preview and alt
   await expect(page.getByRole('heading', { name: 'Press banca', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Reemplazar ejercicio', exact: true }).click();
   await page.getByRole('radio', { name: 'Equipo no disponible', exact: true }).click();
+  for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); for (const radio of await page.getByRole('radio').all()) { if(!await radio.isVisible()) continue; await fieldContrast(radio, info, 'replacement-choice'); await navigationContrast(radio, info, 'replacement-label'); } }
   await expect(page.getByRole('button', { name: 'Elegir Press inclinado con mancuernas', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
   expect(await readPersistence(page, info)).toEqual(saved);

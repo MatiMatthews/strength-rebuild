@@ -128,3 +128,5 @@ Repeated kg/lb/kg reopen and encrypted restore preserve the original snapshot
 and ordered events under independent SQLite readback. Focused database tests
 also cover stale/replayed edits, unknown versus zero loads, mixed legacy events,
 and rejection of contradictory entry metadata before backup replacement.
+
+Field/choice acceptance adds both-theme edit/validate/cancel/save/reopen journeys, focused-theme draft retention, rendered boundary/placeholder/marker checks, busy selection enforcement, and boundary mutation detection. Existing real history, weekly review, replacement and save-failure journeys also measure their editable and selected states. See `field-choices.md` for the consumer inventory.

@@ -1,3 +1,4 @@
+import { fieldContrast } from './field-contrast';
 import { test, expect } from '@playwright/test';
 import { navigationContrast } from './navigation-contrast';
 import { readPersistence } from './persistence';
@@ -31,6 +32,9 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} actio
     await save.click();
     await expect(save).toHaveAttribute('aria-busy', 'true');
     await expect(save).toBeDisabled();
+    await fieldContrast(page.getByLabel('Incremento 1', {exact:true}), info, 'disabled-input');
+    const choice = page.getByRole('radio', {name:'Usar kg',exact:true});
+    await expect(choice).toBeDisabled(); await fieldContrast(choice,info,'busy-choice'); await choice.dispatchEvent('click');
     await expect(page.getByText('Guardando…', { exact: true })).toBeVisible();
     await navigationContrast(save, info, `${fault}-busy`);
     await page.emulateMedia({ colorScheme: colorScheme === 'light' ? 'dark' : 'light' });

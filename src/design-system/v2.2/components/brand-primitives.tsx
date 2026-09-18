@@ -79,13 +79,18 @@ export function IconCommand({ icon: Icon, label, onPress }: { icon: LucideIcon; 
   return <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.iconCommand, { borderColor: theme.text, borderWidth: pressed ? 2 : 1 }]}><Icon color={palette.paper} size={22} /></Pressable>;
 }
 
-export function ChoiceControl({ accessibilityLabel, label, onPress, selected }: { accessibilityLabel?: string; label: string; onPress: () => void; selected: boolean }) {
+export function ChoiceControl({ accessibilityLabel, label, onPress, selected, busy = false, disabled = false }: { accessibilityLabel?: string; label: string; onPress: () => void; selected: boolean; busy?: boolean; disabled?: boolean }) {
   const theme = useAppTheme();
-  return <Pressable accessibilityLabel={accessibilityLabel ?? label} accessibilityRole="radio" accessibilityState={{ checked: selected }} aria-checked={selected} onPress={onPress} style={[styles.choice, selected && styles.choiceSelected]}><View style={[styles.choiceMark, selected && styles.choiceMarkSelected]} /><Text style={[styles.label, { color: selected ? palette.ink : theme.text }]}>{label}</Text></Pressable>;
+  const unavailable = disabled || busy;
+  const backgroundColor = selected ? palette.signal : unavailable ? theme.surfaceMuted : theme.surface;
+  const foreground = selected ? palette.ink : unavailable ? theme.textMuted : theme.text;
+  return <Pressable accessibilityLabel={accessibilityLabel ?? label} accessibilityRole="radio" accessibilityState={{ checked: selected, busy, disabled: unavailable }} aria-checked={selected} aria-busy={busy} disabled={unavailable} onPress={onPress} style={({ pressed }) => [styles.choice, { backgroundColor, borderColor: selected ? palette.ink : theme.textMuted, borderWidth: pressed && !unavailable ? 2 : 1 }]}><View style={[styles.choiceMark, { borderColor: foreground, backgroundColor: selected ? foreground : backgroundColor }]} /><Text style={[styles.label, { color: foreground, flexShrink: 1 }]}>{label}</Text></Pressable>;
 }
 
-export function TrainingField({ label, unit, ...props }: TextInputProps & { label: string; unit?: string }) {
-  const theme = useAppTheme(); return <View style={styles.field}><Text style={[styles.label, { color: theme.text }]}>{label}</Text><View style={styles.fieldInstrument}><TextInput accessibilityLabel={label} allowFontScaling style={[styles.fieldInput, { color: theme.text }]} {...props} />{unit ? <Text style={[styles.label, { color: theme.textMuted }]}>{unit}</Text> : null}</View></View>;
+export function TrainingField({ label, unit, style, editable = true, ...props }: TextInputProps & { label: string; unit?: string }) {
+  const theme = useAppTheme();
+  const backgroundColor = editable ? theme.surface : theme.surfaceMuted;
+  return <View style={styles.field}><Text style={[styles.label, { color: theme.text }]}>{label}</Text><View style={[styles.fieldInstrument, { backgroundColor, borderColor: theme.textMuted }]}><TextInput accessibilityLabel={label} allowFontScaling editable={editable} placeholderTextColor={theme.textMuted} style={[styles.fieldInput, { color: editable ? theme.text : theme.textMuted }, style]} {...props} />{unit ? <Text style={[styles.label, { color: theme.textMuted }]}>{unit}</Text> : null}</View></View>;
 }
 
 export function OperationalSection({ children, label }: PropsWithChildren<{ label: string }>) { return <View><View style={styles.operationLabel}><Text style={styles.phaseLabel}>{label}</Text></View>{children}</View>; }
@@ -119,7 +124,7 @@ const styles = StyleSheet.create({
   commandText: { ...typography.bodyStrong, color: palette.paper },
   masthead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm }, mastheadText: { flex: 1, minWidth: 0 }, display: { ...typography.display, color: palette.ink }, compactDisplay: { fontSize: 22, lineHeight: 26 }, label: { ...typography.label, color: palette.ink }, phaseLabel: { ...typography.label, color: palette.paper }, title: { ...typography.title },
   iconCommand: { alignItems: 'center', backgroundColor: palette.ink, height: 48, justifyContent: 'center', width: 48 },
-  choice: { alignItems: 'center', borderBottomColor: palette.line, borderBottomWidth: borders.standard, flexDirection: 'row', gap: spacing.md, minHeight: 56, padding: spacing.md }, choiceSelected: { backgroundColor: palette.signal }, choiceMark: { borderColor: palette.ink, borderWidth: borders.emphasis, height: 20, width: 20 }, choiceMarkSelected: { backgroundColor: palette.ink },
+  choice: { alignItems: 'center', flexDirection: 'row', gap: spacing.md, minHeight: 56, padding: spacing.md }, choiceMark: { borderColor: palette.ink, borderWidth: borders.emphasis, height: 20, width: 20 },
   field: { gap: spacing.xs }, fieldInstrument: { alignItems: 'center', borderColor: palette.line, borderWidth: borders.standard, flexDirection: 'row', minHeight: 48, paddingHorizontal: spacing.md }, fieldInput: { ...typography.body, flex: 1, minHeight: 48 },
   operationLabel: { backgroundColor: palette.ink, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }, dock: { borderTopWidth: borders.emphasis, padding: spacing.lg },
   sheetOverlay: { flex: 1, justifyContent: 'flex-end' }, sheet: { borderTopLeftRadius: radii.tool, borderTopRightRadius: radii.tool, maxHeight: '92%', padding: spacing.lg }, sheetHeader: { alignItems: 'center', borderBottomColor: palette.line, borderBottomWidth: borders.standard, flexDirection: 'row', justifyContent: 'space-between', paddingBottom: spacing.md },
