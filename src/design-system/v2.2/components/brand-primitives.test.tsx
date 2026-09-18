@@ -17,8 +17,8 @@ describe('V2.2 structural brand primitives', () => {
   it('uses compact, fixed-size typography for long operational titles', async () => {
     const screen = await render(<><AppMasthead title="HOY" /><AppMasthead title="ENTRENAMIENTO" context="GUARDADO AUTOMATICO" /></>);
 
-    expect(StyleSheet.flatten(screen.getByText('HOY').props.style).fontSize).toBe(44);
-    expect(StyleSheet.flatten(screen.getByText('ENTRENAMIENTO').props.style).fontSize).toBe(22);
+    expect(StyleSheet.flatten(screen.getByText('HOY').props.style).fontSize).toBe(28);
+    expect(StyleSheet.flatten(screen.getByText('ENTRENAMIENTO').props.style).fontSize).toBe(28);
     expect(StyleSheet.flatten(screen.getByLabelText('ENTRENAMIENTO · GUARDADO AUTOMATICO').props.style).minWidth).toBe(0);
   });
 

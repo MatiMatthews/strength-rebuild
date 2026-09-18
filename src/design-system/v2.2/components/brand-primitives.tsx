@@ -1,10 +1,12 @@
 import type { LucideIcon } from 'lucide-react-native';
+import { useContext } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type TextInputProps, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { borders, palette, radii, spacing, typography } from '../tokens';
 import { useAppTheme } from '../../use-app-theme';
+import { ActionButton, AppSheet, IconButton, ScreenContentInset, TextField } from '../primitives';
 
 const contentWidth = 800;
 
@@ -16,8 +18,10 @@ export function CutCornerSurface({ children, style }: PropsWithChildren<{ style?
   return <View style={[styles.cutCorner, style]}>{children}</View>;
 }
 
-export function BrandBand({ children, testID, tone = 'signal' }: PropsWithChildren<{ testID?: string; tone?: 'signal' | 'ink' }>) {
-  return <View testID={testID} style={[styles.band, tone === 'ink' && styles.inkBand]}><View testID="brand-band-content" style={styles.bandContent}>{children}</View></View>;
+export function BrandBand({ children, inset, testID, tone = 'signal' }: PropsWithChildren<{ inset?: number; testID?: string; tone?: 'signal' | 'ink' }>) {
+  const contentInset = useContext(ScreenContentInset);
+  const bleed = inset ?? contentInset;
+  return <View testID={testID} style={[styles.band, bleed ? { width: 'auto', alignSelf: 'stretch', marginHorizontal: -bleed } : undefined, tone === 'ink' && styles.inkBand]}><View testID="brand-band-content" style={styles.bandContent}>{children}</View></View>;
 }
 
 export function Ordinal({ value }: { value: number | string }) {
@@ -42,8 +46,7 @@ export function StatusActionBand({ actionLabel, busy = false, detail, onAction, 
 }
 
 function Command({ busy = false, icon: Icon, label, onPress }: { busy?: boolean; icon?: LucideIcon | undefined; label: string; onPress: () => void }) {
-  const theme = useAppTheme();
-  return <Pressable accessibilityLabel={label} accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} aria-busy={busy} disabled={busy} onPress={onPress} style={({ pressed }) => [styles.command, { borderColor: theme.text, borderWidth: pressed && !busy ? 2 : 1 }]}>{Icon ? <Icon color={palette.paper} size={20} /> : null}<Text style={styles.commandText}>{label}</Text></Pressable>;
+  return <ActionButton accessibilityLabel={label} busy={busy} {...(Icon ? { icon: Icon } : {})} onPress={onPress} tone="command">{label}</ActionButton>;
 }
 
 export function ExerciseRunSheetRow({ actionLabel, detail, icon, name, onPress, ordinal, trailing }: { actionLabel: string; detail: string; icon?: LucideIcon; name: string; onPress: () => void; ordinal: number; trailing?: ReactNode }) {
@@ -53,9 +56,8 @@ export function ExerciseRunSheetRow({ actionLabel, detail, icon, name, onPress, 
 
 export function BrandContent({ children }: PropsWithChildren) { return <View style={styles.content}>{children}</View>; }
 
-export function AppMasthead({ command, context, testID, title }: { command?: ReactNode; context?: string; testID?: string; title: string }) {
-  const compactTitle = title.split(/\s+/).some((word) => word.length > 10);
-  return <BrandBand {...(testID ? { testID } : {})}><View style={styles.masthead}><BrandMark /><View accessible accessibilityLabel={context ? `${title} · ${context}` : title} style={styles.mastheadText}><Text accessibilityRole="header" aria-level={1} style={[styles.display, compactTitle && styles.compactDisplay]}>{title}</Text>{context ? <Text style={styles.label}>{context}</Text> : null}</View>{command}</View></BrandBand>;
+export function AppMasthead({ command, context, inset, role = 'screen', testID, title }: { command?: ReactNode; context?: string; inset?: number; role?: 'screen' | 'task'; testID?: string; title: string }) {
+  return <BrandBand {...(inset !== undefined ? { inset } : {})} {...(testID ? { testID } : {})}><View style={styles.masthead}><BrandMark /><View accessible accessibilityLabel={context ? `${title} · ${context}` : title} style={styles.mastheadText}><Text accessibilityRole="header" aria-level={1} style={[styles.screenTitle, role === 'task' && styles.taskTitle]}>{title}</Text>{context ? <Text style={styles.label}>{context}</Text> : null}</View>{command}</View></BrandBand>;
 }
 
 export function PhaseBand({ current, label, testID, total }: { current?: number; label: string; testID?: string; total?: number }) {
@@ -69,28 +71,17 @@ export function RuledHeader({ metrics = [], title }: { metrics?: readonly Metric
 }
 
 export function CommandButton({ children, disabled = false, busy = false, onPress }: PropsWithChildren<{ disabled?: boolean; busy?: boolean; onPress: () => void }>) {
-  const theme = useAppTheme();
-  const unavailable = disabled || busy;
-  return <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: unavailable }} aria-busy={busy} disabled={unavailable} onPress={onPress} style={({ pressed }) => [styles.command, { backgroundColor: unavailable ? theme.surfaceMuted : palette.ink, borderColor: unavailable ? theme.textMuted : theme.text, borderWidth: pressed && !unavailable ? 2 : 1 }]}><Text style={[styles.commandText, { color: unavailable ? theme.textMuted : palette.paper }]}>{children}</Text></Pressable>;
+  return <ActionButton busy={busy} disabled={disabled} onPress={onPress} tone="command">{children}</ActionButton>;
 }
 
 export function IconCommand({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
-  const theme = useAppTheme();
-  return <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.iconCommand, { borderColor: theme.text, borderWidth: pressed ? 2 : 1 }]}><Icon color={palette.paper} size={22} /></Pressable>;
+  return <IconButton accessibilityLabel={label} icon={Icon} onPress={onPress} tone="command" />;
 }
 
-export function ChoiceControl({ accessibilityLabel, label, onPress, selected, busy = false, disabled = false }: { accessibilityLabel?: string; label: string; onPress: () => void; selected: boolean; busy?: boolean; disabled?: boolean }) {
-  const theme = useAppTheme();
-  const unavailable = disabled || busy;
-  const backgroundColor = selected ? palette.signal : unavailable ? theme.surfaceMuted : theme.surface;
-  const foreground = selected ? palette.ink : unavailable ? theme.textMuted : theme.text;
-  return <Pressable accessibilityLabel={accessibilityLabel ?? label} accessibilityRole="radio" accessibilityState={{ checked: selected, busy, disabled: unavailable }} aria-checked={selected} aria-busy={busy} disabled={unavailable} onPress={onPress} style={({ pressed }) => [styles.choice, { backgroundColor, borderColor: selected ? palette.ink : theme.textMuted, borderWidth: pressed && !unavailable ? 2 : 1 }]}><View style={[styles.choiceMark, { borderColor: foreground, backgroundColor: selected ? foreground : backgroundColor }]} /><Text style={[styles.label, { color: foreground, flexShrink: 1 }]}>{label}</Text></Pressable>;
-}
+export { ChoiceControl } from '../primitives';
 
 export function TrainingField({ label, unit, style, editable = true, ...props }: TextInputProps & { label: string; unit?: string }) {
-  const theme = useAppTheme();
-  const backgroundColor = editable ? theme.surface : theme.surfaceMuted;
-  return <View style={styles.field}><Text style={[styles.label, { color: theme.text }]}>{label}</Text><View style={[styles.fieldInstrument, { backgroundColor, borderColor: theme.textMuted }]}><TextInput accessibilityLabel={label} allowFontScaling editable={editable} placeholderTextColor={theme.textMuted} style={[styles.fieldInput, { color: editable ? theme.text : theme.textMuted }, style]} {...props} />{unit ? <Text style={[styles.label, { color: theme.textMuted }]}>{unit}</Text> : null}</View></View>;
+  return <TextField label={label} {...(unit ? { unit } : {})} style={style} editable={editable} presentation="training" {...props} />;
 }
 
 export function OperationalSection({ children, label }: PropsWithChildren<{ label: string }>) { return <View><View style={styles.operationLabel}><Text style={styles.phaseLabel}>{label}</Text></View>{children}</View>; }
@@ -98,7 +89,7 @@ export function OperationalSection({ children, label }: PropsWithChildren<{ labe
 export function BottomCommandDock({ children }: PropsWithChildren) { const theme = useAppTheme(); return <SafeAreaView edges={['bottom']} style={[styles.dock, { backgroundColor: theme.canvas, borderColor: theme.border }]}>{children}</SafeAreaView>; }
 
 export function FocusedSheet({ children, onDismiss, title, visible }: PropsWithChildren<{ onDismiss: () => void; title: string; visible: boolean }>) {
-  const theme = useAppTheme(); return <Modal animationType="slide" onRequestClose={onDismiss} transparent visible={visible}><View style={[styles.sheetOverlay, { backgroundColor: theme.overlay }]}><View accessibilityLabel={title} accessibilityViewIsModal role="dialog" style={[styles.sheet, { backgroundColor: theme.surface }]}><View style={styles.sheetHeader}><Text style={[styles.title, { color: theme.text }]}>{title}</Text><CommandButton onPress={onDismiss}>Cerrar</CommandButton></View><ScrollView keyboardShouldPersistTaps="handled">{children}</ScrollView></View></View></Modal>;
+  return <AppSheet onDismiss={onDismiss} title={title} visible={visible} closeLabel="Cerrar">{children}</AppSheet>;
 }
 
 export const OrdinalRow = ExerciseRunSheetRow;
@@ -108,7 +99,7 @@ const styles = StyleSheet.create({
   inkBand: { backgroundColor: palette.ink },
   bandContent: { width: '100%', maxWidth: contentWidth, alignSelf: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
   content: { width: '100%', maxWidth: contentWidth, alignSelf: 'center', paddingHorizontal: spacing.lg },
-  mark: { alignItems: 'center', backgroundColor: palette.ink, height: 48, justifyContent: 'center', width: 48 },
+  mark: { alignItems: 'center', backgroundColor: palette.ink, height: 48, flexShrink: 0, justifyContent: 'center', width: 48 },
   markText: { ...typography.title, color: palette.signal },
   cutCorner: { borderRadius: radii.structural, borderTopRightRadius: radii.tool, overflow: 'hidden' },
   ordinal: { ...typography.sequence, color: palette.ink, minWidth: 48 },
@@ -120,12 +111,6 @@ const styles = StyleSheet.create({
   statusBand: { alignItems: 'center', borderBottomWidth: borders.emphasis, borderTopWidth: borders.emphasis, borderColor: palette.ink, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, paddingVertical: spacing.md },
   row: { alignItems: 'center', borderBottomWidth: borders.standard, borderColor: palette.line, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, minHeight: 72, paddingVertical: spacing.sm },
   flex: { flex: 1, minWidth: 140 }, heading: { ...typography.heading, color: palette.ink }, body: { ...typography.body, color: palette.steel },
-  command: { alignItems: 'center', backgroundColor: palette.ink, borderRadius: radii.control, flexDirection: 'row', gap: spacing.sm, justifyContent: 'center', minHeight: 48, minWidth: 48, paddingHorizontal: spacing.lg },
-  commandText: { ...typography.bodyStrong, color: palette.paper },
-  masthead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm }, mastheadText: { flex: 1, minWidth: 0 }, display: { ...typography.display, color: palette.ink }, compactDisplay: { fontSize: 22, lineHeight: 26 }, label: { ...typography.label, color: palette.ink }, phaseLabel: { ...typography.label, color: palette.paper }, title: { ...typography.title },
-  iconCommand: { alignItems: 'center', backgroundColor: palette.ink, height: 48, justifyContent: 'center', width: 48 },
-  choice: { alignItems: 'center', flexDirection: 'row', gap: spacing.md, minHeight: 56, padding: spacing.md }, choiceMark: { borderColor: palette.ink, borderWidth: borders.emphasis, height: 20, width: 20 },
-  field: { gap: spacing.xs }, fieldInstrument: { alignItems: 'center', borderColor: palette.line, borderWidth: borders.standard, flexDirection: 'row', minHeight: 48, paddingHorizontal: spacing.md }, fieldInput: { ...typography.body, flex: 1, minHeight: 48 },
+  masthead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm }, mastheadText: { flex: 1, minWidth: 0 }, screenTitle: { ...typography.title, color: palette.ink }, taskTitle: { ...typography.taskTitle, color: palette.ink }, label: { ...typography.label, color: palette.ink }, phaseLabel: { ...typography.label, color: palette.paper }, title: { ...typography.title },
   operationLabel: { backgroundColor: palette.ink, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }, dock: { borderTopWidth: borders.emphasis, padding: spacing.lg },
-  sheetOverlay: { flex: 1, justifyContent: 'flex-end' }, sheet: { borderTopLeftRadius: radii.tool, borderTopRightRadius: radii.tool, maxHeight: '92%', padding: spacing.lg }, sheetHeader: { alignItems: 'center', borderBottomColor: palette.line, borderBottomWidth: borders.standard, flexDirection: 'row', justifyContent: 'space-between', paddingBottom: spacing.md },
 });

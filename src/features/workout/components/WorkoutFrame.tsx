@@ -14,7 +14,7 @@ type Props = PropsWithChildren<{ busy?: boolean; current: number; exerciseName: 
 export function WorkoutFrame({ busy = false, children, commands, current, exerciseName, nextName, onClose, onShowGuidance, total }: Props) {
   const theme = useAppTheme();
   return <>
-    <AppMasthead command={<IconButton disabled={busy} accessibilityLabel="Cerrar entrenamiento" icon={X} onPress={onClose} />} context="GUARDADO AUTOMÁTICO" title="ENTRENAMIENTO" />
+    <AppMasthead role="task" command={<IconButton disabled={busy} accessibilityLabel="Cerrar entrenamiento" icon={X} onPress={onClose} />} context="GUARDADO AUTOMÁTICO" title="ENTRENAMIENTO" />
     <ExerciseProgressRail current={current} total={total} />
     <View style={[styles.header, { borderBottomColor: theme.text }]} testID="workout-exercise-header">
       <AppText color="muted" variant="caption">Ejercicio {current} de {total}</AppText>
