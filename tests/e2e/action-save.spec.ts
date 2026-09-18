@@ -69,7 +69,10 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} train
   await page.emulateMedia({ colorScheme });
   const { startSyntheticWorkout } = await import('./setup');
   await startSyntheticWorkout(page);
-  for (const button of await page.getByRole('button').all()) {
+  // Workout visibility precedes the outgoing preparation sheet's animation.
+  // Wait for that route control to leave before taking an indexed inventory.
+  await expect(page.getByRole('button', { name: 'Cerrar Preparación de hoy', exact: true })).toHaveCount(0);
+  for (const button of await page.getByTestId('workout-screen').getByRole('button').all()) {
     if (await button.isVisible()) await navigationContrast(button, info, `workout-${await button.getAttribute('aria-label')}`);
   }
   const preset = page.getByRole('button', { name: 'Descanso 60 segundos', exact: true });
