@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Weekly reviews now compose verified targets after legacy exercise repairs, preserving original prescriptions, unknown replacement loads, and portable audits.
+
 - Multi-week training cycles with explicit activation and transition weeks.
 - Set-by-set workout logging, readiness checks, rest timing, and session recovery.
 - Shared visual components across planning, training, and progress.
