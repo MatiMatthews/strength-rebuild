@@ -1,6 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import { inspectContent } from './content-contrast';
-import { startSyntheticWorkout } from './setup';
+import { isLastWorkoutExercise, startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
 async function readableText(locator: Locator) {
@@ -74,7 +74,7 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} stati
       await page.getByRole('button', { name: `Completar serie ${set}`, exact: true }).click();
     }
     const next = page.getByRole('button', { name: 'Siguiente ejercicio', exact: true });
-    if (await next.isDisabled()) break;
+    if (await isLastWorkoutExercise(page)) break;
     await next.click();
   }
   await page.getByRole('button', { name: 'Revisar y terminar entrenamiento', exact: true }).click();

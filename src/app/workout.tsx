@@ -28,5 +28,5 @@ export default function WorkoutRoute() {
     return () => subscription.remove();
   }, [router]);
   if (Platform.OS === 'android' && !openedInThisProcess) return null;
-  return <WorkoutReferenceScreen onClose={() => router.back()} programs={programs} requireReadiness settingsStore={settingsStore} workouts={workouts} />;
+  return <WorkoutReferenceScreen onClose={() => { if (router.canGoBack()) router.back(); else router.replace('/'); }} programs={programs} requireReadiness settingsStore={settingsStore} workouts={workouts} />;
 }

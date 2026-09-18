@@ -19,6 +19,12 @@ describe('tabBarSafeAreaStyle', () => {
     });
   });
 
+  it('adds space for scaled navigation labels without shrinking the touch targets', () => {
+    expect(tabBarSafeAreaStyle(24, 1.4).height).toBe(106);
+    expect(tabBarSafeAreaStyle(24, 2).height).toBe(121);
+    expect(tabBarSafeAreaStyle(24, 1.4).paddingBottom).toBe(spacing.sm + 24);
+  });
+
   it('does not allow a negative inset to shrink the tab bar', () => {
     expect(tabBarSafeAreaStyle(-12)).toEqual(tabBarSafeAreaStyle(0));
   });

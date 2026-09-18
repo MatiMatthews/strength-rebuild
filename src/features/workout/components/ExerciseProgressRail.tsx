@@ -7,8 +7,12 @@ export function ExerciseProgressRail({ current, total }: { current: number; tota
   const safeCurrent = Math.max(1, Math.min(current, safeTotal));
   return <View
     accessibilityLabel={`Ejercicio ${safeCurrent} de ${safeTotal}`}
+    accessible
     accessibilityRole="progressbar"
     accessibilityValue={{ min: 1, max: safeTotal, now: safeCurrent }}
+    aria-valuemin={1}
+    aria-valuemax={safeTotal}
+    aria-valuenow={safeCurrent}
     style={styles.rail}
     testID="workout-sequence-rail"
   >

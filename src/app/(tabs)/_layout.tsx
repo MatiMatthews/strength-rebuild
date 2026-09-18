@@ -1,3 +1,4 @@
+import { useWindowDimensions } from 'react-native';
 import { Tabs } from 'expo-router';
 import { CalendarRange, ChartNoAxesColumnIncreasing, Dumbbell } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,7 +10,8 @@ import { borders, palette, typography } from '@/design-system/v2.2/tokens';
 export default function TabsLayout() {
   const theme = useAppTheme();
   const { bottom } = useSafeAreaInsets();
-  const tabBarInsets = tabBarSafeAreaStyle(bottom);
+  const { fontScale } = useWindowDimensions();
+  const tabBarInsets = tabBarSafeAreaStyle(bottom, fontScale);
 
   return (
     <Tabs
@@ -24,10 +26,11 @@ export default function TabsLayout() {
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
           ...typography.caption,
+          lineHeight: typography.caption.lineHeight + 3,
         },
         tabBarStyle: {
           backgroundColor: theme.surface,
-          borderTopColor: palette.ink,
+          borderTopColor: theme.text,
           borderTopWidth: borders.emphasis,
           ...tabBarInsets,
         },

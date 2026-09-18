@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
-import { startSyntheticWorkout } from './setup';
+import { isLastWorkoutExercise, startSyntheticWorkout } from './setup';
 import { readPersistence } from './persistence';
 
 // Complete the first session through production controls and independently read SQLite.
@@ -15,7 +15,7 @@ for (const choice of ['Aceptar recomendación de sesión', 'Mantener plan de ses
       await page.getByRole('button', { name: `Completar serie ${set}`, exact: true }).click();
     }
     const next = page.getByRole('button', { name: 'Siguiente ejercicio', exact: true });
-    if (await next.isDisabled()) break;
+    if (await isLastWorkoutExercise(page)) break;
     await next.click();
   }
   await page.getByRole('button', { name: 'Revisar y terminar entrenamiento', exact: true }).click();
