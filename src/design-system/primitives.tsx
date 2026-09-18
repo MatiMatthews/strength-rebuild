@@ -240,7 +240,7 @@ type TextFieldProps = TextInputProps & {
   label: string;
 };
 
-export function TextField({ error, label, style, ...props }: TextFieldProps) {
+export function TextField({ error, label, style, editable = true, ...props }: TextFieldProps) {
   const theme = useAppTheme();
   return (
     <View style={styles.fieldGroup}>
@@ -249,9 +249,10 @@ export function TextField({ error, label, style, ...props }: TextFieldProps) {
         accessibilityLabel={label}
         allowFontScaling
         placeholderTextColor={theme.textMuted}
+        editable={editable}
         style={[
           styles.textField,
-          { backgroundColor: theme.surface, borderColor: error ? palette.stop : theme.border, color: theme.text },
+          { backgroundColor: editable ? theme.surface : theme.surfaceMuted, borderColor: error ? theme.dangerText : theme.textMuted, color: editable ? theme.text : theme.textMuted },
           style,
         ]}
         {...props}

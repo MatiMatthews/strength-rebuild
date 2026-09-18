@@ -129,7 +129,7 @@ describe('Workout reference state', () => {
   it('updates technique and optional discomfort without hiding the form', async () => {
     const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} />);
     await fireEvent.press(screen.getByRole('radio', { name: 'Regular, serie 1' }));
-    expect(screen.getByRole('radio', { name: 'Regular, serie 1' }).props.accessibilityState).toEqual({ checked: true });
+    expect(screen.getByRole('radio', { name: 'Regular, serie 1' }).props.accessibilityState).toMatchObject({ checked: true, disabled: false });
 
     await fireEvent.press(screen.getByLabelText('Aumentar molestia de la serie 1'));
     expect(screen.getByText('Molestia: 1/10')).toBeOnTheScreen();

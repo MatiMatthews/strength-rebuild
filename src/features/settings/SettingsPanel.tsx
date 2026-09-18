@@ -61,7 +61,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       setFeedback({ danger: true, message: error instanceof Error && error.name === 'SettingsConflictError' ? error.message : 'No se pudo guardar la configuración. Tus cambios siguen aquí; vuelve a intentar guardar.' });
     } finally { saving.current = false; setBusy(false); }
   };
-  const choice = (label: string, selected: boolean, onPress: () => void, accessibilityLabel: string) => <ChoiceControl accessibilityLabel={accessibilityLabel} label={label} onPress={() => { if (!saving.current && baseline) onPress(); }} selected={selected} />;
+  const choice = (label: string, selected: boolean, onPress: () => void, accessibilityLabel: string) => <ChoiceControl busy={busy} disabled={!baseline} accessibilityLabel={accessibilityLabel} label={label} onPress={() => { if (!saving.current && baseline) onPress(); }} selected={selected} />;
   return <View testID="settings-operational-tools" style={[styles.tools, { borderColor: theme.border }]}>
     <OperationalSection label="Configuración local">
     <AppText color="muted">Equipo, horario y requisitos se guardan sin conexión y se aplican al próximo plan.</AppText>

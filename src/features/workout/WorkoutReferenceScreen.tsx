@@ -34,7 +34,7 @@ import {
   Screen,
   Tag,
 } from "@/design-system/v2.2/primitives";
-import { radii, spacing } from "@/design-system/v2.2/tokens";
+import { palette, radii, spacing } from "@/design-system/v2.2/tokens";
 import { useAppTheme } from "@/design-system/use-app-theme";
 import { playContractedHaptic } from "@/design-system/v2.2/haptics";
 import { useMotionPolicy } from "@/design-system/v2.2/use-motion-policy";
@@ -778,16 +778,17 @@ export function WorkoutReferenceScreen({
                     <Pressable
                       accessibilityLabel={`${option}, serie ${index + 1}`}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: set.technique === option }}
+                      accessibilityState={{ checked: set.technique === option, disabled: savingSet }}
+                      disabled={savingSet}
                       aria-checked={set.technique === option}
                       key={option}
                       onPress={() => {
                         setMeta(index, { technique: option });
                       }}
-                      style={styles.segment}
+                      style={({ pressed }) => [styles.segment, { backgroundColor: set.technique === option ? palette.signal : theme.surface, borderColor: set.technique === option ? palette.ink : theme.textMuted, borderWidth: pressed && !savingSet ? 2 : 1 }]}
                     >
                       <AppText
-                        color={set.technique === option ? "accent" : "muted"}
+                        style={{ color: set.technique === option ? palette.ink : theme.text }}
                         variant="label"
                       >
                         {option}
@@ -823,7 +824,7 @@ export function WorkoutReferenceScreen({
                 placeholderTextColor={theme.textMuted}
                 style={[
                   styles.notes,
-                  { borderColor: theme.border, color: theme.text },
+                  { backgroundColor: theme.surface, borderColor: theme.textMuted, color: theme.text },
                 ]}
                 value={set.notes}
               />
@@ -889,7 +890,7 @@ export function WorkoutReferenceScreen({
                     placeholderTextColor={theme.textMuted}
                     style={[
                       styles.notes,
-                      { borderColor: theme.border, color: theme.text },
+                      { backgroundColor: theme.surface, borderColor: theme.textMuted, color: theme.text },
                     ]}
                     value={skipReason}
                   />

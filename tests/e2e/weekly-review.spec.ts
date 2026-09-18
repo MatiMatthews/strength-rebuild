@@ -1,3 +1,5 @@
+import { fieldContrast } from './field-contrast';
+import { navigationContrast } from './navigation-contrast';
 import { isLastWorkoutExercise } from './setup';
 import { inspectContent } from './content-contrast';
 import { test, expect } from '@playwright/test';
@@ -68,6 +70,7 @@ for (const [choice, label] of [['ACCEPTED', 'Aceptar propuesta semanal'], ['KEPT
   await app.goto('/');
   await app.getByRole('button', { name: 'Abrir revisión semanal', exact: true }).click();
   await expect(app.getByText('Revisión de semana 2', { exact: true })).toBeVisible();
+  for (const colorScheme of ['light', 'dark'] as const) { await app.emulateMedia({ colorScheme }); for (const radio of await app.getByRole('radio').all()) { await fieldContrast(radio, info, 'weekly-choice'); await navigationContrast(radio, info, 'weekly-label'); } }
   await app.getByRole('button', { name: 'Crear propuesta semanal', exact: true }).click();
   await expect(app.getByRole('button', { name: label!, exact: true })).toBeVisible();
   if (choice === 'KEPT') {

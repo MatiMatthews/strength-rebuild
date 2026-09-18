@@ -1,3 +1,4 @@
+import { fieldContrast } from './field-contrast';
 import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -47,6 +48,7 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
  await app.getByLabel('Carga corregida',{exact:true}).fill('');await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Plate count');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
  await expect(app.getByText('La carga corregida debe ser un número válido de 0 o más.',{exact:true})).toBeVisible();expect(await events()).toEqual([]);
+ for (const colorScheme of ['light','dark'] as const) { await app.emulateMedia({colorScheme}); for (const label of ['Carga corregida','Motivo de la corrección']) await fieldContrast(app.getByLabel(label,{exact:true}),info,'history-field'); }
  await app.getByLabel('Carga corregida',{exact:true}).fill('55');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).evaluate((b:HTMLElement)=>{b.click();b.click();});
  await expect(app.getByText('Serie 1: 55 kg × 8',{exact:true})).toBeVisible();

@@ -1,16 +1,15 @@
 import { targetChanged } from '../../application/progression/weekly-targets';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { WeekOutcome, WeeklyChoice, WeeklyProposal, WeeklyReviewService } from '../../application/progression/weekly-review';
 import { ActionButton, AppText, Panel } from '../../design-system/v2.2/primitives';
-import { palette, radii, spacing } from '../../design-system/v2.2/tokens';
-import { useAppTheme } from '../../design-system/use-app-theme';
+import { spacing } from '../../design-system/v2.2/tokens';
+import { ChoiceControl } from '../../design-system/v2.2/components';
 const outcomes: readonly { value: WeekOutcome; label: string }[] = [
   { value: 'successful', label: 'Completada' }, { value: 'missed', label: 'Incompleta' },
   { value: 'failed', label: 'Fallida' }, { value: 'restricted', label: 'Restringida' }, { value: 'repeated', label: 'Repetida' },
 ];
 export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }: { cycleId: string; nextWeekIndex: number; reviews: WeeklyReviewService; onChanged?: (changed: boolean) => void }) {
-  const theme = useAppTheme();
   const [outcome, setOutcome] = useState<WeekOutcome>('successful');
   const [proposal, setProposal] = useState<WeeklyProposal | null>(null);
   const [message, setMessage] = useState('');
@@ -49,7 +48,7 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     {!ready ? <><AppText>{message ? 'Revisión no disponible' : 'Cargando revisión…'}</AppText>{message ? <ActionButton onPress={() => setRetry(value => value + 1)}>Reintentar revisión</ActionButton> : null}</> : null}
     {ready && !resolved && !proposal ? <>
       <View accessibilityLabel="Resultado de la semana" accessibilityRole="radiogroup" style={styles.options}>
-        {outcomes.map(item => <Pressable disabled={busy} aria-checked={outcome === item.value} accessibilityLabel={item.label} accessibilityRole="radio" accessibilityState={{ checked: outcome === item.value, disabled: busy }} key={item.value} onPress={() => setOutcome(item.value)} style={[styles.option, { borderColor: outcome === item.value ? palette.strength : theme.border }]}><AppText variant="bodyStrong">{item.label}</AppText></Pressable>)}
+        {outcomes.map(item => <ChoiceControl busy={busy} key={item.value} label={item.label} selected={outcome === item.value} onPress={() => setOutcome(item.value)} />)}
       </View>
       <ActionButton accessibilityLabel="Crear propuesta semanal" busy={busy} disabled={busy} onPress={() => run(async () => { const value = await reviews.propose({ cycleId, weekIndex: nextWeekIndex - 1, nextWeekIndex, outcome }); setProposal(value); setOutcome(value.outcome); })}>{busy ? 'Guardando…' : 'Revisar resultado'}</ActionButton>
     </> : null}
@@ -74,4 +73,4 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     {message ? <AppText accessibilityLiveRegion="polite">{message}</AppText> : null}
   </Panel>;
 }
-const styles = StyleSheet.create({ actions: { gap: spacing.sm }, option: { borderRadius: radii.control, borderWidth: 2, justifyContent: 'center', minHeight: 48, paddingHorizontal: spacing.md }, options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, proposal: { gap: spacing.md } });
+const styles = StyleSheet.create({ actions: { gap: spacing.sm }, options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, proposal: { gap: spacing.md } });

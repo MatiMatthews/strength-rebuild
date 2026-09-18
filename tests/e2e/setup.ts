@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
-export async function startSyntheticWorkout(page: Page) {
+export async function startSyntheticWorkout(page: Page, inspectPreparation?: () => Promise<void>) {
   await page.goto('/plan');
   await expect(page.getByTestId('plan-screen')).toBeVisible();
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
@@ -16,6 +16,7 @@ export async function startSyntheticWorkout(page: Page) {
   await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
   await page.goto('/');
   await page.getByRole('button', { name: 'Revisar preparación para entrenar', exact: true }).click();
+  await inspectPreparation?.();
   await page.getByLabel('Dolor de 0 a 2, estable', { exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar preparación', exact: true }).click();
   await expect(page.getByTestId('workout-screen')).toBeVisible();
