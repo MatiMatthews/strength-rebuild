@@ -33,9 +33,9 @@ export function SessionReviewPanel({ reviews, onChanged }: { reviews: SessionRev
       <AppText>{item.reason}</AppText>
       {item.before && item.after ? <AppText>Antes: {item.before.sets} × {item.before.prescribedReps} · {item.before.load} kg. Propuesta: {item.after.sets} × {item.after.reps} · {item.after.load} kg.</AppText> : null}
       {item.target ? <AppText>Próxima exposición: semana {item.target.week_index}, día {item.target.day_index}.</AppText> : null}
-      {item.unavailable ? <AppText>{item.unavailable}</AppText> : <ActionButton disabled={busy} accessibilityLabel="Aceptar recomendación de sesión" onPress={() => decide(item, 'ACCEPTED')}>Aceptar recomendación</ActionButton>}
-      <ActionButton disabled={busy} tone="secondary" accessibilityLabel="Mantener plan de sesión" onPress={() => decide(item, 'KEPT')}>Mantener plan</ActionButton>
-      <ActionButton disabled={busy} tone="secondary" accessibilityLabel="Rechazar recomendación de sesión" onPress={() => decide(item, 'REJECTED')}>Rechazar recomendación</ActionButton>
+      {item.unavailable ? <AppText>{item.unavailable}</AppText> : <ActionButton busy={busy} disabled={busy} accessibilityLabel="Aceptar recomendación de sesión" onPress={() => decide(item, 'ACCEPTED')}>Aceptar recomendación</ActionButton>}
+      <ActionButton busy={busy} disabled={busy} tone="secondary" accessibilityLabel="Mantener plan de sesión" onPress={() => decide(item, 'KEPT')}>Mantener plan</ActionButton>
+      <ActionButton busy={busy} disabled={busy} tone="secondary" accessibilityLabel="Rechazar recomendación de sesión" onPress={() => decide(item, 'REJECTED')}>Rechazar recomendación</ActionButton>
     </View>)}
     {message ? <AppText accessibilityLiveRegion="polite">{message}</AppText> : null}
   </Panel></View>;

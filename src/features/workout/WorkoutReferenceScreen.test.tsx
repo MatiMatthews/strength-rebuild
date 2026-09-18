@@ -142,10 +142,10 @@ describe('Workout reference state', () => {
       await fireEvent.press(screen.getByLabelText('Aumentar molestia de la serie 1'));
     }
 
-    expect(screen.getByLabelText('Completar serie 1').props.accessibilityState).toEqual({ disabled: true });
+    expect(screen.getByLabelText('Completar serie 1').props.accessibilityState).toMatchObject({ disabled: true });
     await fireEvent.press(screen.getByLabelText('Omitir serie 1'));
     expect(screen.getByLabelText('Motivo para omitir la serie 1')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Confirmar omisión de la serie 1').props.accessibilityState).toEqual({ disabled: false });
+    expect(screen.getByLabelText('Confirmar omisión de la serie 1').props.accessibilityState).toMatchObject({ disabled: false });
   });
 
   it('adds and removes editable sets while remaining keyboard avoiding', async () => {
@@ -181,7 +181,7 @@ describe('Workout reference state', () => {
     await fireEvent.press(screen.getByLabelText('Descanso 90 segundos'));
     expect(screen.getByLabelText(/Temporizador .* segundos/)).toBeOnTheScreen();
     expect(screen.getByLabelText('Carga de la serie 1')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toEqual({ disabled: true });
+    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
     await fireEvent.press(screen.getByLabelText('Completar serie 1'));
     await fireEvent.press(screen.getByLabelText('Completar serie 2'));
     await fireEvent.press(screen.getByLabelText('Omitir serie 3'));
@@ -197,11 +197,11 @@ describe('Workout reference state', () => {
 
     expect(screen.getByTestId('rest-dock')).toBeOnTheScreen();
     expect(screen.getAllByTestId('set-entry-row')).toHaveLength(3);
-    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toEqual({ disabled: true });
+    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
 
     await fireEvent.press(screen.getByLabelText('Completar serie 1'));
     expect(playContractedHaptic).toHaveBeenCalledWith('setCompleted');
     expect(screen.getByText('COMPLETADA')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toEqual({ disabled: true });
+    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
   });
 });
