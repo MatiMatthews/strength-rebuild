@@ -1,3 +1,4 @@
+import { validateBackupHistory } from './backup-history';
 import { validateWeeklyTargetsBackup } from '../progression/weekly-targets';
 import { validateLegacyRepairBackup } from '../programs/legacy-repair';
 import type { RepositoryDatabase, SqlValue } from '../../data/repositories';
@@ -216,6 +217,8 @@ const relationships: Partial<Record<Table, readonly [string, Table][]>> = {
 function validateSemantics(document: BackupDocument) {
   try { validateLegacyRepairBackup(document.tables); validateWeeklyTargetsBackup(document.tables); }
   catch { throw new BackupError('corrupt', 'El respaldo contiene una reparación de referencias inválida o contradictoria.'); }
+  try { validateBackupHistory(document.tables); }
+  catch { throw new BackupError('corrupt', 'El respaldo contiene cargas o correcciones inválidas. No se cambió ningún dato.'); }
   const identities = new Map<Table, Set<string>>();
   for (const table of tables) {
     const ids = new Set<string>();
