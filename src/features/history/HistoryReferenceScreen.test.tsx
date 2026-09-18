@@ -128,3 +128,20 @@ describe("HistoryReferenceScreen", () => {
     expect(correctHistory).not.toHaveBeenCalled();
   });
 });
+
+
+it('loads saved units, keeps unknown and zero distinct, and submits the editor unit with canonical stale protection',async()=>{
+ const correctHistory=jest.fn().mockResolvedValue(undefined);
+ const actual={id:'units',safetyModifications:[],exercises:[{exerciseId:'barbell-bench-press',originalExerciseId:'barbell-bench-press',requirement:'EXACT' as const,sets:['55','','0'].map(load=>({load,reps:'8',rir:'2',technique:'Limpia',pain:0,notes:'',completed:true,skipped:false,disposition:'COMPLETED' as const}))}]};
+ const workouts={listHistory:jest.fn().mockResolvedValue([{id:'units',actual,prescribed:{dayIndex:1,exercises:[]},completedAt:'2026-09-05'}]),correctHistory};
+ const settingsStore={load:jest.fn().mockResolvedValue({units:'lb'})};
+ const view=await render(<HistoryReferenceScreen workouts={workouts} settingsStore={settingsStore}/>);
+ await waitFor(()=>expect(view.getByText('Serie 1: 121.2542442 lb × 8')).toBeTruthy());
+ expect(view.getByText('Serie 2: Sin carga × 8')).toBeTruthy();expect(view.getByText('Serie 3: 0 lb × 8')).toBeTruthy();
+ await fireEvent.press(view.getByLabelText('Corregir serie 1 de Press banca'));
+ await waitFor(()=>expect(view.getByLabelText('Carga corregida').props.value).toBe('121.2542442'));
+ await fireEvent.changeText(view.getByLabelText('Carga corregida'),'100,5');
+ await fireEvent.changeText(view.getByLabelText('Motivo de la corrección'),'Measured');
+ await fireEvent.press(view.getByLabelText('Confirmar corrección del historial'));
+ await waitFor(()=>expect(correctHistory).toHaveBeenCalledWith(expect.objectContaining({load:'100,5',unit:'lb',expectedLoad:'55'})));
+});

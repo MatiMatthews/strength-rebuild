@@ -116,3 +116,15 @@ command.
 Wholly unstarted legacy plans can explicitly confirm a compatible replacement, retain the original in an auditable decision, and activate the effective prescription. The cumulative Chrome journey covers cancellation, confirmation, activation and cold workout reopen; SQLite tests also cover stale settings/work, rollback, repeated confirmation and encrypted backup restore. Used cycles remain read-only pending future-session repair support.
 
 Explicit cycle confirmation and its cumulative consumer coverage are described in [cycle completion](cycle-completion.md).
+
+## History correction units
+
+The cumulative `history-correction.spec.ts` corrects either recorded set,
+checks the 920 kg volume example, then switches settings to lb and cold reopens.
+It verifies converted rows, original/before/after audit and existing metrics;
+unchanged, cancelled, invalid and repeated submissions preserve persisted data.
+A decimal-comma lb correction retains entered provenance and canonical kg.
+Repeated kg/lb/kg reopen and encrypted restore preserve the original snapshot
+and ordered events under independent SQLite readback. Focused database tests
+also cover stale/replayed edits, unknown versus zero loads, mixed legacy events,
+and rejection of contradictory entry metadata before backup replacement.

@@ -1,3 +1,5 @@
+import { BackupService } from '../../../src/application/export/backup-service';
+import { displayLoad } from '../../../src/application/workouts/load-entry';
 import { DatabaseSync } from 'node:sqlite';
 import { WorkoutService } from '../../../src/application/workouts/workout-service';
 import { buildHistoryAnalytics } from '../../../src/domain/analytics/workout-history';
@@ -82,4 +84,56 @@ it('preserves unrelated sessions and rejects pending work inside a completed sna
  const before=await f.service.listHistory();await expect(f.service.correctHistory({...f.input,setIndex:2})).rejects.toThrow();
  await f.service.correctHistory(f.input);const after=await f.service.listHistory();
  expect(after.find(s=>s.id==='unrelated')).toEqual(before.find(s=>s.id==='unrelated'));expect(after.find(s=>s.id==='recorded')!.actual.exercises[0]!.sets[2]).toEqual(actual.exercises[0].sets[2]);f.sqlite.close();
+});
+
+it('converts a pounds correction once and retains exact entered provenance through replay and reopen',async()=>{
+ const f=await fixture(); const original=await f.db.getAllAsync('SELECT * FROM workout_session');
+ const input={...f.input,load:'121,2542442',unit:'lb',expectedLoad:'60',requestId:'pounds-edit'} as Parameters<WorkoutService['correctHistory']>[0];
+ await f.service.correctHistory(input);
+ const history=await new WorkoutService(f.db).listHistory();
+ expect(Number(history[0]!.actual.exercises[0]!.sets[0]!.load)).toBeCloseTo(55,7);
+ const event=JSON.parse((await f.db.getFirstAsync<{inputs_json:string}>('SELECT inputs_json FROM decision_log'))!.inputs_json);
+ expect(event.after).toMatchObject({load:'55',loadUnit:'kg',loadEntry:{value:'121,2542442',unit:'lb'}});
+ await f.service.correctHistory(input);
+ expect(await f.db.getAllAsync('SELECT * FROM decision_log')).toHaveLength(1);
+ expect(await f.db.getAllAsync('SELECT * FROM workout_session')).toEqual(original);
+ f.sqlite.close();
+});
+
+it('keeps canonical corrections stable across units and encrypted backup with ordered entry metadata',async()=>{
+ const f=await fixture();const original=await f.db.getAllAsync('SELECT * FROM workout_session');
+ await f.service.correctHistory({...f.input,unit:'lb',load:'121,2542442',requestId:'lb'});
+ let history=await f.service.listHistory();
+ expect(buildHistoryAnalytics(history).totalVolume).toBe(920);
+ expect(buildHistoryAnalytics(history,1,'lb').corrections[0]!.detail).toContain('entrada 121,2542442 lb');
+ const set=history[0]!.actual.exercises[0]!.sets[0]!;
+ for(let i=0;i<50;i++){expect(displayLoad(set,'kg')).toBe('55');expect(displayLoad(set,'lb')).toBe('121,2542442');}
+ await f.service.correctHistory({...f.input,load:'52',unit:'kg',expectedLoad:'55',requestId:'kg'});
+ await expect(f.service.correctHistory({...f.input,load:'52',unit:'kg',expectedLoad:'60'})).rejects.toThrow('cambió');
+ await expect(f.service.correctHistory({...f.input,load:'121,2542442',unit:'kg',requestId:'lb'})).rejects.toThrow('cambió');
+ const audit=await f.db.getAllAsync('SELECT * FROM decision_log');
+ const backup=new BackupService(f.db);const encrypted=await backup.exportEncrypted('synthetic-history-units');
+ await backup.restorePortable(encrypted,{replaceConfirmed:true,secret:'synthetic-history-units'});
+ history=await new WorkoutService(f.db).listHistory();
+ expect(history[0]!.corrections!.map(e=>[e.beforeLoad,e.afterLoad,e.enteredLoad?.unit])).toEqual([['60','55','lb'],['55','52','kg']]);
+ expect(await f.db.getAllAsync('SELECT * FROM decision_log')).toEqual(audit);
+ expect(await f.db.getAllAsync('SELECT * FROM workout_session')).toEqual(original);f.sqlite.close();
+});
+it.each(['-1','Infinity','NaN','1e309','','0x10'])('rejects invalid pounds correction %s without changing data',async load=>{
+ const f=await fixture();const original=await f.db.getAllAsync('SELECT * FROM workout_session');
+ await expect(f.service.correctHistory({...f.input,load,unit:'lb'})).rejects.toThrow();
+ expect(await f.db.getAllAsync('SELECT * FROM decision_log')).toEqual([]);
+ expect(await f.db.getAllAsync('SELECT * FROM workout_session')).toEqual(original);f.sqlite.close();
+});
+it('preserves unknown and zero loads and does not infer mixed legacy event units from preferences',async()=>{
+ const f=await fixture();const row=await f.db.getFirstAsync<{actual_snapshot_json:string}>('SELECT actual_snapshot_json FROM workout_session');
+ const actual=JSON.parse(row!.actual_snapshot_json);actual.exercises[0].sets[0].load='';actual.exercises[0].sets[1].load='0';
+ await f.db.runAsync('UPDATE workout_session SET actual_snapshot_json=?',JSON.stringify(actual));
+ let history=await f.service.listHistory();
+ expect(displayLoad(history[0]!.actual.exercises[0]!.sets[0]!,'lb')).toBe('');
+ expect(displayLoad(history[0]!.actual.exercises[0]!.sets[1]!,'lb')).toBe('0');
+ await f.db.runAsync("INSERT INTO decision_log (id,schema_version,created_at,updated_at,decision_type,policy_version,inputs_json,output_json,accepted) VALUES ('legacy-lb',1,'now','now','HISTORY_CORRECTION','legacy',?,'{}',1)",JSON.stringify({...f.input,after:{load:'100',loadUnit:'lb'}}));
+ history=await f.service.listHistory();expect(history[0]!.actual.exercises[0]!.sets[0]!.load).toBe('45.359237');
+ await f.service.correctHistory({...f.input,load:'50',unit:'kg'});
+ expect((await f.service.listHistory())[0]!.corrections!.map(e=>e.beforeLoad)).toEqual(['','45.359237']);f.sqlite.close();
 });

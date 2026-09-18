@@ -20,6 +20,7 @@ async function fixture() {
  const raw=await new BackupService(source.db,()=> 'fixed').export();source.sqlite.close();return JSON.parse(raw);
 }
 const mutations: [string,(doc:Awaited<ReturnType<typeof fixture>>)=>void][]=[
+ ['contradictory correction entry',d=>{const r=d.tables.decision_log[0];const v=JSON.parse(r.inputs_json);v.after.loadEntry={value:'100',unit:'lb'};r.inputs_json=JSON.stringify(v);}],
  ['negative correction',d=>{const r=d.tables.decision_log[0];const v=JSON.parse(r.inputs_json);v.after.load=-1;r.inputs_json=JSON.stringify(v);}],
  ['unknown unit',d=>{const r=d.tables.workout_session[0];const v=JSON.parse(r.actual_snapshot_json);v.exercises[0].sets[0].loadUnit='stone';r.actual_snapshot_json=JSON.stringify(v);}],
  ['missing workout',d=>{const r=d.tables.decision_log[0];const v=JSON.parse(r.inputs_json);v.workoutId='absent';r.inputs_json=JSON.stringify(v);}],

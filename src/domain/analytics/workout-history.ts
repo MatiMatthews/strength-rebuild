@@ -1,3 +1,4 @@
+import { POUNDS_TO_KG, type LoadUnit } from '../../application/workouts/load-entry';
 import type { WorkoutHistoryItem } from '../../application/workouts/workout-service';
 
 export interface ExerciseTrend { exerciseId: string; totalVolume: number; bestE1rm: number; latestPain: number; points: readonly number[] }
@@ -9,7 +10,8 @@ const number = (value: string) => {
 };
 const e1rm = (load: number, reps: number) => reps > 0 && reps < 37 ? load * 36 / (37 - reps) : load;
 
-export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plannedSessions = items.length) {
+export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plannedSessions = items.length, unit: LoadUnit = 'kg') {
+  const display = (value: string) => value.trim() ? String(Number((Number(value) / (unit === 'lb' ? POUNDS_TO_KG : 1)).toFixed(8))) : 'Sin carga';
   const sessions = [...items].sort((a, b) => b.completedAt.localeCompare(a.completedAt));
   const exerciseMap = new Map<string, { volume: number; best: number; pain: number; latest: string; points: number[] }>();
   const corrections: HistoryCorrection[] = [];
@@ -34,7 +36,7 @@ export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plan
       exerciseMap.set(exercise.exerciseId, current);
       if (exercise.replacement) corrections.push({ sessionId: session.id, kind: 'replacement', detail: `${exercise.replacement.fromExerciseId} → ${exercise.exerciseId}: ${exercise.replacement.reason}` });
     }
-    for (const event of session.corrections ?? []) corrections.push({ sessionId:session.id, kind:'load', exerciseId:event.exerciseId, detail:`Corrección ${event.order} · ejercicio ${event.exerciseIndex+1} · serie ${event.setIndex+1} · original ${event.originalLoad} kg · ${event.beforeLoad} → ${event.afterLoad} kg · ${event.reason}` });
+    for (const event of session.corrections ?? []) corrections.push({ sessionId:session.id, kind:'load', exerciseId:event.exerciseId, detail:`Corrección ${event.order} · ejercicio ${event.exerciseIndex+1} · serie ${event.setIndex+1} · original ${display(event.originalLoad)} ${unit} · ${display(event.beforeLoad)} → ${display(event.afterLoad)} ${unit} · ${event.reason}${event.enteredLoad ? ` · entrada ${event.enteredLoad.value} ${event.enteredLoad.unit}` : ''}` });
     for (const safety of session.actual.safetyModifications) corrections.push({ sessionId: session.id, kind: 'safety', detail: safety.explanation });
   }
 

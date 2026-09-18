@@ -1,3 +1,4 @@
+import type { LoadEntry } from './load-entry';
 import { canonicalSet, recoverWorkoutLoads } from './load-recovery';
 import type { TodayData } from '../programs/program-service';
 import type { RepositoryDatabase } from '../../data/repositories';
@@ -5,7 +6,7 @@ import type { WorkoutDraft, WorkoutSetDraft } from './workout-service';
 
 export interface SetCorrection {
   id: string; order: number; exerciseId: string; exerciseIndex: number; setIndex: number;
-  originalLoad: string; beforeLoad: string; afterLoad: string; reason: string; decidedAt: string;
+  enteredLoad?: LoadEntry; originalLoad: string; beforeLoad: string; afterLoad: string; reason: string; decidedAt: string;
 }
 export const isRecordedSet = (set: WorkoutSetDraft) => !set.skipped && (set.disposition === 'COMPLETED' || (set.disposition === undefined && set.completed !== false));
 export function correctionLoad(value: string): number {
@@ -41,10 +42,11 @@ export function projectHistoryRows(rows: HistoryCorrectionRow[], workoutId: stri
     const load = correctionLoad(corrected.load);
     if (typeof input.reason !== 'string' || !input.reason.trim()) throw new Error('Una corrección guardada no tiene un motivo verificable.');
     corrections.push({id:row.id, order:corrections.length+1, exerciseId:input.exerciseId, exerciseIndex, setIndex:input.setIndex,
-      originalLoad:baseline.exercises[exerciseIndex]!.sets[input.setIndex]!.load, beforeLoad:set.load, afterLoad:String(load), reason:input.reason, decidedAt:row.created_at});
+      originalLoad:baseline.exercises[exerciseIndex]!.sets[input.setIndex]!.load, beforeLoad:set.load, afterLoad:String(load), reason:input.reason, decidedAt:row.created_at, ...(corrected.loadEntry ? {enteredLoad:corrected.loadEntry} : {})});
     set.load = String(load);
     set.loadUnit = 'kg';
-    delete set.loadEntry;
+    if (corrected.loadEntry) set.loadEntry = corrected.loadEntry;
+    else delete set.loadEntry;
   }
   return {actual, corrections};
 }
