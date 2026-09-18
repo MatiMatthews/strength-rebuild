@@ -1,3 +1,5 @@
+import { displayLoad, POUNDS_TO_KG, type LoadUnit } from '@/application/workouts/load-entry';
+import type { TrainingSettings } from '@/features/settings/settings';
 import { useAppTheme } from '@/design-system/use-app-theme';
 import {
   BarChart3,
@@ -26,6 +28,7 @@ import { AppMasthead, OrdinalRow, PhaseBand } from "@/design-system/v2.2/compone
 export interface HistoryWorkouts {
   listHistory(): Promise<WorkoutHistoryItem[]>;
   correctHistory?(input: {
+    unit?: LoadUnit;
     workoutId: string;
     exerciseId: string;
     setIndex: number;
@@ -44,11 +47,16 @@ const exerciseName = (exerciseId: string) =>
 export function HistoryReferenceScreen({
   workouts,
   refreshKey = 0,
+  settingsStore,
 }: {
   workouts: HistoryWorkouts;
   refreshKey?: number;
+  settingsStore?: { load(): Promise<TrainingSettings> };
 }) {
   const theme = useAppTheme();
+  const [unit, setUnit] = useState<LoadUnit>('kg');
+  const amount = (kg: number) => Number((kg / (unit === 'lb' ? POUNDS_TO_KG : 1)).toFixed(3)).toLocaleString('es-CL');
+  const loadText = (load: string) => load.trim() ? `${displayLoad({load}, unit)} ${unit}` : 'Sin carga';
   const [history, setHistory] = useState<WorkoutHistoryItem[]>([]);
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -59,19 +67,18 @@ export function HistoryReferenceScreen({
     exerciseId: string;
     setIndex: number;
     load: string;
-    exerciseIndex: number; expectedLoad: string; requestId: string;
+    unit: LoadUnit; initialLoad: string; exerciseIndex: number; expectedLoad: string; requestId: string;
   } | null>(null);
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
-    workouts
-      .listHistory()
-      .then(items => { setHistory(items); setLoadError(""); })
+    Promise.all([workouts.listHistory(), settingsStore?.load()])
+      .then(([items, settings]) => { setHistory(items); setUnit(settings?.units ?? 'kg'); setLoadError(""); })
       .catch(error => setLoadError(error instanceof Error ? error.message : "No se pudo cargar el historial. Conservamos tus registros."))
       .finally(() => setLoaded(true));
-  }, [refreshKey, workouts]);
+  }, [refreshKey, workouts, settingsStore]);
   const filteredHistory = useMemo(
     () =>
       history.filter((session) => {
@@ -98,8 +105,8 @@ export function HistoryReferenceScreen({
     [cycleFilter, exerciseFilter, history],
   );
   const analytics = useMemo(
-    () => buildHistoryAnalytics(filteredHistory),
-    [filteredHistory],
+    () => buildHistoryAnalytics(filteredHistory, filteredHistory.length, unit),
+    [filteredHistory, unit],
   );
   const submitCorrection = async () => {
     if (!correction || !workouts.correctHistory || savingRef.current) return;
@@ -109,7 +116,7 @@ export function HistoryReferenceScreen({
     }
     savingRef.current = true; setSaving(true);
     try {
-      await workouts.correctHistory({ ...correction, reason });
+      await workouts.correctHistory({ ...correction, reason, ...(correction.load === correction.initialLoad && correction.expectedLoad.trim() ? {load:correction.expectedLoad, unit:'kg'} : {}) });
       setHistory(await workouts.listHistory());
       setCorrection(null);
       setReason("");
@@ -194,7 +201,7 @@ export function HistoryReferenceScreen({
               <BarChart3 color={theme.text} size={22} />
               <AppText variant="title">
                 {analytics.totalVolume > 0
-                  ? `${analytics.totalVolume.toLocaleString("es-CL")} kg`
+                  ? `${amount(analytics.totalVolume)} ${unit}`
                   : "Sin carga registrada"}
               </AppText>
               <AppText color="muted" variant="caption">
@@ -213,14 +220,14 @@ export function HistoryReferenceScreen({
                     </AppText>
                   </View>
                   {exercise.bestE1rm > 0 ? (
-                    <Tag>e1RM {exercise.bestE1rm} kg</Tag>
+                    <Tag>e1RM {amount(exercise.bestE1rm)} {unit}</Tag>
                   ) : (
                     <Tag>e1RM no disponible</Tag>
                   )}
                 </View>
                 <AppText color="muted" variant="caption">
                   {exercise.totalVolume > 0
-                    ? `Volumen ${exercise.totalVolume.toLocaleString("es-CL")} kg`
+                    ? `Volumen ${amount(exercise.totalVolume)} ${unit}`
                     : "Volumen no disponible"}{" "}
                   · molestia más reciente {exercise.latestPain}/10
                 </AppText>
@@ -246,8 +253,8 @@ export function HistoryReferenceScreen({
                     <AppText color="muted" variant="caption">
                       Tendencia e1RM de {exerciseName(exercise.exerciseId)}:
                       valores registrados{" "}
-                      {exercise.points.filter((point) => point > 0).join(", ")}{" "}
-                      kg.
+                      {exercise.points.filter((point) => point > 0).map(amount).join(", ")}{" "}
+                      {unit}.
                     </AppText>
                   </>
                 ) : (
@@ -304,7 +311,7 @@ export function HistoryReferenceScreen({
                           {completed
                             .map(
                               (set) =>
-                                `${set.load || "Sin carga"} × ${set.reps || "sin repeticiones"} · RIR/RPE ${set.rir || "—"} · técnica ${set.technique} · molestia ${set.pain}/10${set.notes ? ` · ${set.notes}` : ""}`,
+                                `${loadText(set.load)} × ${set.reps || "sin repeticiones"} · RIR/RPE ${set.rir || "—"} · técnica ${set.technique} · molestia ${set.pain}/10${set.notes ? ` · ${set.notes}` : ""}`,
                             )
                             .join(", ")}
                         </AppText>
@@ -313,13 +320,13 @@ export function HistoryReferenceScreen({
                       )}
                       {exercise.sets.map((set, setIndex) => completed.includes(set) && workouts.correctHistory ? (
                         <View key={setIndex}>
-                          <AppText>Serie {setIndex + 1}: {set.load || "Sin carga"} kg × {set.reps}</AppText>
+                          <AppText>Serie {setIndex + 1}: {loadText(set.load)} × {set.reps}</AppText>
                           <ActionButton
                             accessibilityLabel={`Corregir serie ${setIndex + 1} de ${exerciseName(exercise.exerciseId)}`}
                             disabled={saving}
                             onPress={() => {
                               setCorrection({workoutId:session.id, exerciseId:exercise.exerciseId, exerciseIndex, setIndex,
-                                load:set.load, expectedLoad:set.load, requestId:`edit-${Date.now()}-${Math.random().toString(36).slice(2)}`});
+                                load:displayLoad(set, unit), initialLoad:displayLoad(set, unit), unit, expectedLoad:set.load, requestId:`edit-${Date.now()}-${Math.random().toString(36).slice(2)}`});
                               setReason(""); setMessage("");
                             }} tone="secondary"
                           >Corregir serie {setIndex + 1}</ActionButton>
@@ -340,7 +347,7 @@ export function HistoryReferenceScreen({
               >
                 Confirmar corrección
               </AppText>
-              <AppText variant="bodyStrong">{exerciseName(correction.exerciseId)} · serie {correction.setIndex + 1} · carga actual {correction.expectedLoad || "0"} kg</AppText>
+              <AppText variant="bodyStrong">{exerciseName(correction.exerciseId)} · serie {correction.setIndex + 1} · carga actual {loadText(correction.expectedLoad)}</AppText>
               <AppText color="muted">
                 La sesión original es inmutable. Se agregará un evento auditado
                 con la interpretación anterior y la corregida.
@@ -348,7 +355,7 @@ export function HistoryReferenceScreen({
               <TextField
                 accessibilityLabel="Carga corregida"
                 keyboardType="decimal-pad"
-                label="Carga corregida"
+                label={`Carga corregida (${correction.unit})`}
                 onChangeText={(load) => setCorrection({ ...correction, load })}
                 value={correction.load}
               />

@@ -10,7 +10,7 @@ export function enteredLoad(value: string, unit: LoadUnit): Pick<WorkoutSetDraft
   if (!Number.isFinite(kg)) throw new Error('La carga debe ser finita.');
   return { load: value === '' ? '' : String(Number(kg.toFixed(8))), loadUnit: 'kg', loadEntry: { value, unit } };
 }
-export function displayLoad(set: WorkoutSetDraft, unit: LoadUnit): string {
+export function displayLoad(set: Pick<WorkoutSetDraft, 'load' | 'loadUnit' | 'loadEntry'>, unit: LoadUnit): string {
   if (set.loadEntry?.unit === unit && enteredLoad(set.loadEntry.value, unit).load === set.load) return set.loadEntry.value;
   if (!set.load.trim()) return '';
   const kg = Number(set.load.replace(',', '.')) * (set.loadUnit === 'lb' ? POUNDS_TO_KG : 1);

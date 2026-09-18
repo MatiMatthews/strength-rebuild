@@ -1,4 +1,4 @@
-import type { LoadEntry } from './load-entry';
+import { enteredLoad, type LoadEntry, type LoadUnit } from './load-entry';
 import { canonicalSet, recoverWorkoutLoads } from './load-recovery';
 import { correctionLoad, isRecordedSet, projectHistory, type SetCorrection } from './history-corrections';
 import { enforceRestrictions, mutationSafety, readRestrictions } from './persisted-safety';
@@ -21,7 +21,7 @@ export interface SafetyModification extends SafetyResult { exerciseIndex: number
 export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
 export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft; corrections?: SetCorrection[] }
-export interface HistoryCorrectionInput { workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string; exerciseIndex?: number; expectedLoad?: string; requestId?: string }
+export interface HistoryCorrectionInput { unit?: LoadUnit; workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string; exerciseIndex?: number; expectedLoad?: string; requestId?: string }
 export interface ReadinessInput extends SafetyInput {
   readonly region: 'lumbar' | 'abdominal' | 'other';
   readonly reproducedByBraceCoughOrSneeze: boolean;
@@ -393,7 +393,9 @@ export class WorkoutService {
     const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
     if (!reason) throw new Error('El motivo de la corrección es obligatorio.');
     if (!Number.isInteger(input.setIndex) || input.setIndex < 0) throw new RangeError('La serie no existe.');
-    const load = correctionLoad(input.load);
+    correctionLoad(input.load);
+    const entry = enteredLoad(input.load.trim(), input.unit ?? 'kg');
+    const load = Number(entry.load);
     if (this.correctionBusy) throw new Error('Ya se está guardando una corrección.');
     this.correctionBusy = true;
     try {
@@ -412,20 +414,20 @@ export class WorkoutService {
           const previous = await this.db.getAllAsync<{inputs_json:string}>("SELECT inputs_json FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION'");
           const replay = previous.map(e => JSON.parse(e.inputs_json)).find(e => e.requestId === input.requestId);
           if (replay) {
-            if (replay.workoutId !== input.workoutId || replay.exerciseIndex !== exerciseIndex || replay.setIndex !== input.setIndex || replay.after.load !== String(load) || replay.reason !== reason) throw new Error('La solicitud de corrección cambió.');
+            if (replay.workoutId !== input.workoutId || replay.exerciseIndex !== exerciseIndex || replay.setIndex !== input.setIndex || replay.after.load !== String(load) || replay.reason !== reason || (replay.unit ?? 'kg') !== (input.unit ?? 'kg') || replay.load !== input.load) throw new Error('La solicitud de corrección cambió.');
             return;
           }
         }
-        if (numeric(before.load, Number.NaN) === load) return;
         if (input.expectedLoad !== undefined && input.expectedLoad !== before.load) throw new Error('La serie cambió. Vuelve a abrir la corrección.');
+        if (numeric(before.load, Number.NaN) === load) return;
         const count = await this.db.getFirstAsync<{sequence:number}>("SELECT COALESCE(MAX(CAST(json_extract(inputs_json, '$.sequence') AS INTEGER)), 0) + 1 AS sequence FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION'");
         const sequence = count!.sequence;
         const timestamp = this.now();
         await this.db.runAsync(`INSERT INTO decision_log
           (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
-          VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v2', ?, ?, 1, ?)`,
+          VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v3', ?, ?, 1, ?)`,
           `history-correction-${sequence}`, timestamp, timestamp,
-          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, loadEntry:undefined, load:String(load), loadUnit:'kg'}}),
+          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, ...entry}}),
           JSON.stringify({originalSnapshotPreserved:true, correctedLoad:load}), timestamp);
       });
     } finally { this.correctionBusy = false; }

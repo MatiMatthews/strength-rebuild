@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { readPersistence } from './persistence';
 
 test('edits each recorded set with effective metrics, ordered audit and immutable originals after cold reopen', async ({page,context},info)=>{
+ test.setTimeout(180_000);
  await page.goto('/plan'); await page.getByRole('button',{name:'Crear vista previa del ciclo',exact:true}).click();
  await expect(page.getByText('Vista previa creada y guardada en este dispositivo.')).toBeVisible();
  await readPersistence(page,info);await page.close();
@@ -63,5 +64,48 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
  expect((await readPersistence(app,info)).workouts).toEqual(original);
  const audit=await events();expect(audit).toHaveLength(2);
  expect(audit.map(e=>JSON.parse(String(e.inputs_json)).before.load)).toEqual(['60','60']);
+
+ const units=async(unit:'kg'|'lb')=>{
+  await app.goto('/settings');await app.getByRole('radio',{name:`Usar ${unit}`,exact:true}).click();
+  await app.getByRole('button',{name:'Guardar configuración local',exact:true}).click();
+  await expect(app.getByText('Configuración guardada en este dispositivo.',{exact:true})).toBeVisible();
+  await app.close();app=await context.newPage();await app.goto('/history');
+ };
+ await units('lb');
+ await expect(app.getByText('Serie 1: 121.2542442 lb × 8',{exact:true})).toBeVisible();
+ await expect(app.getByText(/original 132.27735731 lb/).first()).toBeVisible();
+ await expect(app.getByTestId('progress-metric-strip')).toContainText('1.851,883 lb');
+ await app.getByRole('button',{name:'Corregir serie 1 de Press banca',exact:true}).click();
+ await expect(app.getByLabel('Carga corregida',{exact:true})).toHaveValue('121.2542442');
+ await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Unchanged display');
+ await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
+ await expect(app.getByText('Corrección registrada; el historial original permanece intacto.',{exact:true})).toBeVisible();
+ expect(await events()).toHaveLength(2);
+ await app.getByRole('button',{name:'Corregir serie 2 de Press banca',exact:true}).click();
+ await app.getByLabel('Carga corregida',{exact:true}).fill('-10');
+ await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Pounds correction');
+ await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
+ await expect(app.getByText('La carga corregida debe ser un número válido de 0 o más.',{exact:true})).toBeVisible();
+ expect(await events()).toHaveLength(2);
+ await app.getByLabel('Carga corregida',{exact:true}).fill('121,2542442');
+ await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).evaluate((b:HTMLElement)=>{b.click();b.click();});
+ await expect(app.getByText('Serie 2: 121.2542442 lb × 8',{exact:true})).toBeVisible();
+ const mixedAudit=await events();expect(mixedAudit).toHaveLength(3);
+ expect(JSON.parse(String(mixedAudit[2]!.inputs_json)).after).toMatchObject({load:'55',loadUnit:'kg',loadEntry:{value:'121,2542442',unit:'lb'}});
+ await expect(app.getByText(/entrada 121,2542442 lb/)).toBeVisible();
+ for(const unit of ['kg','lb','kg'] as const){
+  await units(unit);await expect(app.getByText(`Serie 1: ${unit==='kg'?'55 kg':'121.2542442 lb'} × 8`,{exact:true})).toBeVisible();
+  expect(await events()).toEqual(mixedAudit);
+ }
+ await expect(app.getByTestId('progress-metric-strip')).toContainText('880 kg');
+ await app.goto('/backup');await app.getByLabel('Contraseña portátil del respaldo',{exact:true}).fill('synthetic-history-units');
+ await app.getByRole('button',{name:'Exportar respaldo cifrado',exact:true}).click();
+ await expect(app.getByText('Respaldo cifrado y autenticado listo para guardar.',{exact:true})).toBeVisible();
+ await app.getByRole('button',{name:'Revisar respaldo antes de restaurar',exact:true}).click();
+ await app.getByRole('button',{name:'Confirmar restauración del respaldo',exact:true}).click();
+ await expect(app.getByText('Respaldo restaurado de forma atómica.',{exact:true})).toBeVisible();
+ await app.close();app=await context.newPage();await app.goto('/history');
+ await expect(app.getByText('Serie 2: 55 kg × 8',{exact:true})).toBeVisible();
+ expect(await events()).toEqual(mixedAudit);expect((await readPersistence(app,info)).workouts).toEqual(original);
  await app.screenshot({path:info.outputPath('history.png'),fullPage:true});
 });
