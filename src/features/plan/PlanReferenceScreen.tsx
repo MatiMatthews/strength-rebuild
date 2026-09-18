@@ -34,7 +34,7 @@ const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia
 const dayNames: Record<string, string> = { monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles', thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo' };
 const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
-export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
+export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, onOpenCycle, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; onOpenCycle?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
@@ -154,6 +154,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
         setFeedback({ message: 'Referencia reparada. Se conserva el original y tu elección queda registrada.', tone: 'success' });
       }} settings={planningSettings} {...(onOpenSettings ? { onOpenSettings } : {})} onCancel={() => setReviewing(null)} /> : null}
     {active && feedback ? <FeedbackBanner message={feedback.message} tone={feedback.tone} /> : null}
+    {active && lifecycle?.awaitingConfirmation && onOpenCycle ? <ActionButton accessibilityLabel="Revisar siguiente ciclo" onPress={onOpenCycle}>Revisar siguiente ciclo</ActionButton> : null}
     {active ? <View><AppText variant="caption">Plan activo</AppText><PhaseBand {...(currentWeek ? { current: currentWeek } : {})} label={phaseLabel} total={activeCycle?.weeks.length ?? 1} /><AppText variant="bodyStrong">{lifecycle?.awaitingConfirmation ? 'Todas las semanas están revisadas. El siguiente ciclo requiere confirmación.' : pendingWeeks.length ? 'Próxima decisión: revisión semanal' : 'Consulta Hoy para continuar la semana actual.'}</AppText></View> : <Panel accent={palette.hypertrophy}>
       <AppText accessibilityRole="header" aria-level={2} variant="heading">Nuevo ciclo</AppText>
       <TextField accessibilityLabel="Semanas de hipertrofia" keyboardType="number-pad" label="Semanas de hipertrofia" onChangeText={setWeeks} value={weeks} />

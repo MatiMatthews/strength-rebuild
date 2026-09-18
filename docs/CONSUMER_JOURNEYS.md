@@ -88,7 +88,7 @@ accepted end-to-end repair proof yet.
 | Reproducible consumer gates | Combined browser baseline accepted | Fresh locked install/check; production plan/set/reopen, SQLite readback, inspected Chrome captures, all 11 targeted faults detected and separate next-workout red witness. Native and future product outcomes remain pending below. |
 | Valid exercise requirements | Pending | Exact/pattern/capability resolve catalog IDs; equipment/restriction negatives; visible invalid-input recovery; preview and stored IDs, preserve completed legacy records. |
 | Next workout after review | Ordinary session decisions covered; mandatory review recovery pending | Finish first session, reach and persist accept/keep/reject decisions, reopen into next session; genuine safety block remains; Chrome and proposal/session readback. |
-| Weekly and cycle transitions | Pending | Full week/cycle via UI; correct week/status, future-only targets, keep/reject negatives, explicit next cycle and deload; reopen and SQLite at transitions. |
+| Weekly and cycle transitions | Explicit cycle/transition confirmation covered; combined weekly cohorts pending | Full week/cycle via UI; correct week/status, future-only targets, keep/reject negatives, explicit next cycle and deload; reopen and SQLite at transitions. |
 | Reversible set changes | Pending | Cancel omission leaves values/counts/storage unchanged; confirmed reason once; delete confirmation and exact undo; double-submit negatives; Chrome and reopened SQLite. |
 | Corrected history and units | Pending | Any-set correction with immutable original/audit; 60×8 + 60×8 corrected to 55×8 + 60×8 = 920 kg volume; kg/lb boundary conversion, legacy migration idempotence; effective UI/SQLite readback. |
 | First use and preferences | Pending | Resumable personal setup, exactly three days, real equipment/restrictions, unknown strength without invented load, isolated demo, local decimal entry; settings-to-Plan refresh and persistence. |
@@ -114,3 +114,5 @@ have passed. Native and human evidence cannot be inferred from the common web
 command.
 
 Wholly unstarted legacy plans can explicitly confirm a compatible replacement, retain the original in an auditable decision, and activate the effective prescription. The cumulative Chrome journey covers cancellation, confirmation, activation and cold workout reopen; SQLite tests also cover stale settings/work, rollback, repeated confirmation and encrypted backup restore. Used cycles remain read-only pending future-session repair support.
+
+Explicit cycle confirmation and its cumulative consumer coverage are described in [cycle completion](cycle-completion.md).
