@@ -9,7 +9,7 @@ const outcomes: readonly { value: WeekOutcome; label: string }[] = [
   { value: 'successful', label: 'Completada' }, { value: 'missed', label: 'Incompleta' },
   { value: 'failed', label: 'Fallida' }, { value: 'restricted', label: 'Restringida' }, { value: 'repeated', label: 'Repetida' },
 ];
-export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }: { cycleId: string; nextWeekIndex: number; reviews: WeeklyReviewService; onChanged?: () => void }) {
+export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }: { cycleId: string; nextWeekIndex: number; reviews: WeeklyReviewService; onChanged?: (changed: boolean) => void }) {
   const theme = useAppTheme();
   const [outcome, setOutcome] = useState<WeekOutcome>('successful');
   const [proposal, setProposal] = useState<WeeklyProposal | null>(null);
@@ -41,7 +41,7 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     await reviews.decide(proposal.id, choice);
     setResolved(true); setProposal(null);
     setMessage(choice === 'ACCEPTED' && proposal.targets?.targets.some(targetChanged) ? 'Revisión guardada. Objetivos aplicados a la próxima semana. La preparación de seguridad sigue vigente.' : 'Revisión guardada. Cargas y repeticiones sin cambios. La preparación de seguridad sigue vigente.');
-    onChanged?.();
+    onChanged?.(choice === 'ACCEPTED' && Boolean(proposal.targets?.targets.some(targetChanged)));
   });
   return <Panel>
     <AppText accessibilityRole="header" aria-level={2} variant="heading">Revisión de semana {nextWeekIndex - 1}</AppText>
@@ -56,7 +56,8 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     {ready && proposal ? <View style={styles.proposal}>
       <AppText variant="bodyStrong">Resultado: {outcomes.find(item => item.value === proposal.outcome)?.label ?? 'Guardado'}</AppText>
       <AppText>{proposal.explanation}</AppText>
-      <AppText color="muted">{proposal.targets ? 'Aceptar aplica únicamente los ajustes verificados de la próxima semana. Mantener o rechazar conserva el plan.' : 'Este resultado cierra la revisión sin ajustar cargas ni repeticiones. Mantener o rechazar también conserva el plan.'}</AppText>
+      <AppText color="muted">{proposal.targets ? 'Aceptar aplica únicamente los ajustes verificados de la próxima semana. Mantener o rechazar conserva el plan.' : 'Este resultado guardado no autoriza ajustes. Revisa los objetivos actuales antes de aplicar cambios, o cierra sin ajustar cargas ni repeticiones. Mantener o rechazar también conserva el plan.'}</AppText>
+      {!proposal.targets && proposal.outcome !== 'restricted' ? <ActionButton disabled={busy} busy={busy} onPress={() => run(async () => setProposal(await reviews.propose({cycleId,weekIndex:nextWeekIndex-1,nextWeekIndex,outcome:proposal.outcome},true)))}>Revisar objetivos actuales</ActionButton> : null}
       {proposal.targets?.unavailable ? <AppText>{proposal.targets.unavailable}</AppText> : null}
       {proposal.targets && !proposal.targets.targets.length ? <AppText>Última semana: no hay otra semana que ajustar. Esta revisión no activa un ciclo nuevo.</AppText> : null}
       {proposal.targets?.targets.map((t,index)=><View key={index} style={styles.proposal}>
