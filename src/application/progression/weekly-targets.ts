@@ -29,7 +29,7 @@ export function applyWeeklyTargets(session: Session, targets: WeeklyTarget[]): S
 }
 
 /** Reconstruct every exercise from immutable workouts plus audited corrections, not the one-exercise session proposal. */
-export async function inspectWeeklyTargets(db: RepositoryDatabase, cycleId: string, weekIndex: number): Promise<WeeklyTargets> {
+export async function inspectWeeklyTargets(db: RepositoryDatabase, cycleId: string, weekIndex: number, recovery = false): Promise<WeeklyTargets> {
   const sessions = await db.getAllAsync<TargetSession>(`SELECT s.id, s.snapshot_json, s.status, s.day_index,
     (SELECT COUNT(*) FROM workout_session r WHERE r.session_plan_id=s.id) AS started
     FROM session_plan s JOIN training_week w ON w.id=s.training_week_id WHERE w.cycle_id=? AND w.week_index=? ORDER BY s.day_index,s.id`, cycleId, weekIndex+1);
@@ -71,6 +71,32 @@ export async function inspectWeeklyTargets(db: RepositoryDatabase, cycleId: stri
     else if (sessionApplied) reason='Esta sesión ya recibió una recomendación. Se conserva para evitar un avance duplicado.';
     else if (before.loadProvenance?.includes(' lb;')) reason='La referencia está en libras. Se conserva sin convertir ni aplicar incrementos ambiguos.';
     else if (before.calculatedLoad === undefined || !Number.isFinite(before.calculatedLoad) || before.calculatedLoad<0) reason='Carga desconocida: no se inventa una carga ni se autoriza un avance.';
+    else if (recovery) {
+      // A reported outcome selects review mode; only recorded, compatible exposures authorize a reduction.
+      const completed = (e: typeof exposures[number]) => e.actual.sets.filter(s=>s.disposition === 'COMPLETED');
+      const verified = (e: typeof exposures[number]) => compatible(e.prescribed) && !e.actual.replacement
+        && !e.h.actual.safetyModifications.length && !e.h.actual.readiness?.reviewRequired
+        && (!e.h.actual.readiness || e.h.actual.readiness.disposition === 'CONTINUE_CONSERVATIVELY')
+        && e.actual.sets.length === before.target.sets && completed(e).length > 0 && e.actual.sets.every(s =>
+          s.pain <= 2 && s.technique === 'Limpia' && (s.disposition === 'SKIPPED' && s.skipped && !s.completed && Boolean(s.skipReason?.trim())
+          || s.disposition === 'COMPLETED' && s.completed && !s.skipped && number(s.load) === before.calculatedLoad
+          && Number.isFinite(number(s.reps)) && Number.isFinite(number(s.rir))));
+      const failed = (e: typeof exposures[number]) => verified(e) && (completed(e).length < before.target.sets || completed(e).some(s=>number(s.reps)<before.target.reps.min)
+        || number(completed(e).at(-1)!.rir)<=before.target.rir.min-2);
+      const currentSources = history.filter(h=>h.week_index === weekIndex && entries(h.prescribed).some(e=>same(e,before)));
+      const currentExposures = exposures.filter(e=>e.h.week_index === weekIndex);
+      if (wholeWeek && latest?.h.week_index === weekIndex && currentSources.length === currentExposures.length && currentExposures.every(verified)) {
+        let previous = 0;
+        for (const e of exposures.slice(1)) { if (!failed(e)) break; previous++; }
+        input={exerciseId:before.exerciseId,role:before.requirement === 'EXACT' ? 'main':'accessory',target:{sets:before.target.sets,prescribedReps:before.target.reps.min,reps:before.target.reps,load:before.calculatedLoad,targetRir:before.target.rir.min},completed:{sets:completed(latest).length,repsPerSet:completed(latest).map(s=>number(s.reps)),terminalRir:number(completed(latest).at(-1)!.rir),technique:'good',pain:Math.max(...latest.actual.sets.map(s=>s.pain))},consecutiveSuccessfulExposures:0,consecutiveFailedExposures:previous,availableLoadIncrements:settings.increments.map(n=>settings.units==='lb'?n*0.45359237:n),safetyFlagActive:false};
+        const result=proposeProgression(input);
+        if (result.action === 'reduce_load') {
+          after={...before,calculatedLoad:result.nextTarget.load,loadProvenance:'weekly recovery; kg'};
+          reason='Trabajo o esfuerzo insuficiente verificado: reduce la carga un cinco por ciento; conserva series y repeticiones.';
+        } else if (result.action === 'repeat_week') reason='Dos exposiciones insuficientes verificadas: se conserva la prescripción. Repetir una semana no está disponible; no se añaden semanas ni se activa otro ciclo.';
+        else reason='Este ejercicio no requiere una reducción verificada. Se conserva la prescripción sin avance automático.';
+      }
+    }
     else if (wholeWeek && latest?.h.week_index === weekIndex && successful(latest)
       && exposures.filter(e=>e.h.week_index === weekIndex).every(successful)) {
       let previous=0;
@@ -116,10 +142,16 @@ export function validateWeeklyTargetsBackup(tables: Record<string, Record<string
     const stored=proposal && JSON.parse(String(proposal.output_json));
     const review=tables.decision_log?.find(d=>d.id===`decision-${input.proposalId}`);
     if(row.id !== `weekly-targets:${input.proposalId}` || seen.has(String(row.id)) || !proposal || proposal.policy_version !== 'weekly-review-v1'
-      || proposal.decision !== 'ACCEPTED' || stored.targetPolicy !== WEEKLY_TARGET_POLICY || stored.outcome !== 'successful'
+      || proposal.decision !== 'ACCEPTED' || stored.targetPolicy !== WEEKLY_TARGET_POLICY || !['successful','missed','failed','repeated'].includes(stored.outcome)
       || input.cycleId !== stored.cycleId || input.weekIndex !== stored.weekIndex || !review || review.accepted !== 1
       || JSON.stringify(stored.targets)!==JSON.stringify(output) || output.unavailable !== null
       || !output.targets.some(targetChanged) || !/^[a-f0-9]{64}$/.test(output.fingerprint)) invalid();
+    const recordedInput=JSON.parse(String(proposal!.inputs_json));
+    const reviewInput=JSON.parse(String(review!.inputs_json));
+    const reviewOutput=JSON.parse(String(review!.output_json));
+    if(recordedInput.cycleId!==stored.cycleId || recordedInput.weekIndex!==stored.weekIndex || recordedInput.outcome!==stored.outcome
+      || reviewInput.originalInputs!==proposal!.inputs_json || reviewInput.originalOutput!==proposal!.output_json
+      || reviewOutput.choice!=='ACCEPTED' || reviewOutput.prescriptionsChanged!==true) invalid();
     seen.add(String(row.id));
     const keys=new Set<string>();
     for(const session of output.sessions) {
@@ -139,8 +171,8 @@ export function validateWeeklyTargetsBackup(tables: Record<string, Record<string
           || p.target.prescribedReps!==t.before.target.reps.min || JSON.stringify(p.target.reps)!==JSON.stringify(t.before.target.reps)
           || p.target.targetRir!==t.before.target.rir.min || p.safetyFlagActive || t.before.power || t.before.plyometric) invalid();
         const result=proposeProgression(p!);
-        if(!['add_reps','add_load'].includes(result.action) || ![result.nextTarget.load,result.nextTarget.reps,result.nextTarget.sets].every(Number.isFinite)) invalid();
-        const expected={...t.before,calculatedLoad:result.nextTarget.load,target:{...t.before.target,reps:{...t.before.target.reps,min:result.nextTarget.reps}},...(result.action==='add_load'?{loadProvenance:'weekly progression; kg'}:{})};
+        if(!(stored.outcome === 'successful' ? ['add_reps','add_load'] : ['reduce_load']).includes(result.action) || ![result.nextTarget.load,result.nextTarget.reps,result.nextTarget.sets].every(Number.isFinite)) invalid();
+        const expected=result.action==='reduce_load' ? {...t.before,calculatedLoad:result.nextTarget.load,loadProvenance:'weekly recovery; kg'} : {...t.before,calculatedLoad:result.nextTarget.load,target:{...t.before.target,reps:{...t.before.target.reps,min:result.nextTarget.reps}},...(result.action==='add_load'?{loadProvenance:'weekly progression; kg'}:{})};
         if(JSON.stringify(expected)!==JSON.stringify(t.after)) invalid();
       }
     }

@@ -41,11 +41,8 @@ export class WeeklyReviewService {
   async load(cycleId: string, weekIndex: number): Promise<WeeklyProposal | null> {
     const rows = await this.db.getAllAsync<ProposalRow>(
       'SELECT id, cycle_id, inputs_json, output_json, decision FROM progression_proposal WHERE cycle_id = ? AND policy_version = ? AND decision IS NULL ORDER BY created_at, id', cycleId, WEEKLY_REVIEW_POLICY_VERSION);
-    for (const row of rows) {
-      const input = JSON.parse(row.inputs_json) as WeeklyReviewInput;
-      if (input.weekIndex === weekIndex) return this.decode(row);
-    }
-    return null;
+    const matches = rows.filter(row=>(JSON.parse(row.inputs_json) as WeeklyReviewInput).weekIndex === weekIndex).map(row=>this.decode(row));
+    return matches.find(p=>p.targetPolicy === WEEKLY_TARGET_POLICY) ?? matches[0] ?? null;
   }
 
   private decode(row: ProposalRow): WeeklyProposal {
@@ -54,10 +51,10 @@ export class WeeklyReviewService {
       || input.nextWeekIndex !== input.weekIndex + 1 || !Object.hasOwn(decisions, input.outcome)) throw new Error('La revisión guardada no tiene datos verificables.');
     // Historical output may contain suggested targets. They are not an authorized prescription.
     const stored = JSON.parse(row.output_json) as WeeklyProposal;
-    return { ...input, id: row.id, ...decisions[input.outcome], ...(stored.targetPolicy === WEEKLY_TARGET_POLICY && input.outcome === 'successful' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: stored.targets} : {}) };
+    return { ...input, id: row.id, ...decisions[input.outcome], ...(stored.targetPolicy === WEEKLY_TARGET_POLICY && input.outcome !== 'restricted' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: stored.targets} : {}) };
   }
 
-  async propose(input: WeeklyReviewInput): Promise<WeeklyProposal> {
+  async propose(input: WeeklyReviewInput, reviewLegacy = false): Promise<WeeklyProposal> {
     if (this.busy) throw new Error('Ya se está guardando una revisión.');
     this.busy = true;
     try {
@@ -65,8 +62,8 @@ export class WeeklyReviewService {
       await this.db.withTransactionAsync(async () => {
         if (!(await this.isEligible(input.cycleId, input.weekIndex)) || input.nextWeekIndex !== input.weekIndex + 1 || !Object.hasOwn(decisions, input.outcome)) throw new Error('Esta semana no tiene una revisión pendiente. Vuelve a Hoy.');
         const existing = await this.load(input.cycleId, input.weekIndex);
-        if (existing) { proposal = existing; return; }
-        proposal = { ...input, id: this.createId(), ...decisions[input.outcome], ...(input.outcome === 'successful' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: await inspectWeeklyTargets(this.db,input.cycleId,input.weekIndex)} : {}) };
+        if (existing && (!reviewLegacy || existing.targets || input.outcome === 'restricted')) { proposal = existing; return; }
+        proposal = { ...input, id: this.createId(), ...decisions[input.outcome], ...(input.outcome !== 'restricted' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: await inspectWeeklyTargets(this.db,input.cycleId,input.weekIndex,input.outcome !== 'successful')} : {}) };
         const timestamp = this.now();
         await this.db.runAsync(`INSERT INTO progression_proposal (id, schema_version, created_at, updated_at, cycle_id, policy_version, inputs_json, output_json)
           VALUES (?, 1, ?, ?, ?, ?, ?, ?)`, proposal.id, timestamp, timestamp, input.cycleId, WEEKLY_REVIEW_POLICY_VERSION, JSON.stringify(input), JSON.stringify(proposal));
@@ -88,7 +85,7 @@ export class WeeklyReviewService {
         if (!(await this.isEligible(proposal.cycleId, proposal.weekIndex))) throw new Error('La semana cambió. Vuelve a Hoy para revisar el estado actual.');
         let applied: WeeklyTargets | null = null;
         if(choice === 'ACCEPTED' && proposal.targetPolicy === WEEKLY_TARGET_POLICY) {
-          const current = await inspectWeeklyTargets(this.db,proposal.cycleId,proposal.weekIndex);
+          const current = await inspectWeeklyTargets(this.db,proposal.cycleId,proposal.weekIndex,proposal.outcome !== 'successful');
           if(!proposal.targets || JSON.stringify(current) !== JSON.stringify(proposal.targets) || current.unavailable) throw new Error('La semana cambió o el ajuste no está disponible. Mantén o rechaza para conservar el plan.');
           if(current.targets.some(targetChanged)) applied=current;
         }
