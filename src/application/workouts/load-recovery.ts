@@ -1,3 +1,4 @@
+import { validateLoadEntry } from './load-entry';
 import type { WorkoutDraft, WorkoutSetDraft, WorkoutExerciseDraft } from './workout-service';
 import type { TodayData } from '../programs/program-service';
 
@@ -24,6 +25,7 @@ function prescriptionUnit(exercise: WorkoutExerciseDraft, set: WorkoutSetDraft, 
   if (matches.length !== 1) return undefined;
   const source = matches[0]!;
   if (index >= source.target.sets || !('calculatedLoad' in source) || source.calculatedLoad !== amount(set.load)) return undefined;
+  if ('loadUnit' in source && source.loadUnit !== undefined) return unit(source.loadUnit);
   const label = exercise.exerciseId === 'barbell-bench-press' ? 'bench press reference' : exercise.exerciseId === 'smith-box-squat' ? 'back squat reference' : undefined;
   if (!label || !('loadProvenance' in source) || typeof source.loadProvenance !== 'string') return undefined;
   const match = /^(bench press reference|back squat reference) (\d+(?:\.\d+)?) (kg|lb); training max reference; (\d+(?:\.\d+)?)%; rounded to (\d+(?:\.\d+)?)$/.exec(source.loadProvenance);
@@ -34,6 +36,7 @@ function prescriptionUnit(exercise: WorkoutExerciseDraft, set: WorkoutSetDraft, 
   return match[3] as Unit;
 }
 export function canonicalSet(set: WorkoutSetDraft, evidence?: Unit): WorkoutSetDraft {
+  validateLoadEntry(set);
   const resolved = unit(set.loadUnit) ?? evidence ?? 'kg';
   if (set.load.trim() === '') return resolved === 'lb' ? { ...set, loadUnit: 'kg' } : { ...set };
   const value = amount(set.load);

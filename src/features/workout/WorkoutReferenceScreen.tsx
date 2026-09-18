@@ -1,3 +1,4 @@
+import { displayLoad, enteredLoad } from "@/application/workouts/load-entry";
 import {
   Check,
   Minus,
@@ -143,6 +144,7 @@ export function WorkoutReferenceScreen({
     workouts ? null : preview,
   );
   const [error, setError] = useState("");
+  const [invalidLoads, setInvalidLoads] = useState<Record<string, string>>({});
   const [savingSet, setSavingSet] = useState(false);
   const [savingNavigation, setSavingNavigation] = useState(false);
   const [navigationError, setNavigationError] = useState("");
@@ -270,6 +272,11 @@ export function WorkoutReferenceScreen({
   ) => {
       const current = latestDraftRef.current;
       if (!current) return;
+      let loadPatch = {};
+      if (field === "load") {
+        try { loadPatch = enteredLoad(value, settings.units); setInvalidLoads(current => { const next = { ...current }; delete next[`${exerciseIndex}:${index}`]; return next; }); }
+        catch { setInvalidLoads(current => ({ ...current, [`${exerciseIndex}:${index}`]: value })); return; }
+      }
       const next = {
           ...current,
           exercises: current.exercises.map((item, itemIndex) =>
@@ -285,6 +292,7 @@ export function WorkoutReferenceScreen({
                             field === "notes"
                               ? value
                               : value.replace(/[^0-9,.]/g, ""),
+                          ...loadPatch,
                         }
                       : set,
                   ),
@@ -389,7 +397,7 @@ export function WorkoutReferenceScreen({
     return <Screen><Panel>
       <AppText accessibilityRole="header" aria-level={1} variant="title">¿Eliminar esta serie?</AppText>
       <AppText>{exerciseName(exercise.exerciseId)} · Serie {exercise.sets.length}</AppText>
-      <AppText>{last.load || "Sin carga"} × {last.reps} · {last.disposition === "COMPLETED" ? "Completada" : last.disposition === "SKIPPED" ? "Omitida" : "Pendiente"}</AppText>
+      <AppText>{displayLoad(last, settings.units) || "Sin carga"} {last.load ? settings.units : ""} × {last.reps} · {last.disposition === "COMPLETED" ? "Completada" : last.disposition === "SKIPPED" ? "Omitida" : "Pendiente"}</AppText>
       {last.notes ? <AppText>{last.notes}</AppText> : null}
       {last.skipReason ? <AppText>{last.skipReason}</AppText> : null}
       <AppText>Podrás deshacer la eliminación, incluso al volver a abrir este entrenamiento.</AppText>
@@ -520,11 +528,11 @@ export function WorkoutReferenceScreen({
               <ActionButton
                 accessibilityLabel="Revisar y terminar entrenamiento"
                 disabled={
-                  workouts
+                  Object.keys(invalidLoads).length > 0 || (workouts
                     ? !workouts.canComplete(draft)
                     : !draft.exercises.every((item) =>
                         item.sets.every((set) => set.disposition !== "PENDING"),
-                      )
+                      ))
                 }
                 icon={Check}
                 onPress={() => setFinishing(true)}
@@ -737,6 +745,7 @@ export function WorkoutReferenceScreen({
               />
             </View>
           </View>
+          {Object.keys(invalidLoads).length > 0 ? <AppText accessibilityRole="alert">Escribe una carga válida, sin valores negativos. Tu carga guardada se conserva.</AppText> : null}
           {exercise.sets.map((set, index) => (
             <SetEntryRow key={index}>
               <AppText variant="bodyStrong">Serie {index + 1}</AppText>
@@ -747,12 +756,12 @@ export function WorkoutReferenceScreen({
                     label={`${field === "load" ? "Carga" : field === "reps" ? "Repeticiones" : "RIR"} de la serie ${index + 1}`}
                     visibleLabel={
                       field === "load"
-                        ? "Carga (kg)"
+                        ? `Carga (${settings.units})`
                         : field === "reps"
                           ? "Reps"
                           : "RIR"
                     }
-                    value={set[field]}
+                    value={field === "load" ? invalidLoads[`${exerciseIndex}:${index}`] ?? displayLoad(set, settings.units) : set[field]}
                     onChangeText={(value) => change(index, field, value)}
                   />
                 ))}
@@ -822,7 +831,7 @@ export function WorkoutReferenceScreen({
                 <ActionButton
                   accessibilityLabel={`Completar serie ${index + 1}`}
                   busy={savingSet}
-                  disabled={set.pain >= 5 || savingSet}
+                  disabled={set.pain >= 5 || savingSet || Object.keys(invalidLoads).length > 0}
                   onPress={async () => {
                     if (completionLock.current) return;
                     const current = latestDraftRef.current;
