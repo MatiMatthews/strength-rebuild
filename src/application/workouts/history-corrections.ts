@@ -14,12 +14,16 @@ export function correctionLoad(value: string): number {
   if (!Number.isFinite(load)) throw new Error('La carga corregida debe ser finita.');
   return load;
 }
-interface EventRow { id: string; inputs_json: string; created_at: string; policy_version: string }
+export interface HistoryCorrectionRow { id: string; inputs_json: string; created_at: string; policy_version: string }
 export async function projectHistory(db: RepositoryDatabase, workoutId: string, original: WorkoutDraft, prescribed?: TodayData['session']) {
+  const rows = await db.getAllAsync<HistoryCorrectionRow>("SELECT id, inputs_json, created_at, policy_version FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION' AND accepted = 1 ORDER BY created_at, id");
+  return projectHistoryRows(rows, workoutId, original, prescribed);
+}
+
+export function projectHistoryRows(rows: HistoryCorrectionRow[], workoutId: string, original: WorkoutDraft, prescribed?: TodayData['session']) {
   const baseline = recoverWorkoutLoads(original, prescribed);
   const actual = JSON.parse(JSON.stringify(baseline)) as WorkoutDraft;
   const corrections: SetCorrection[] = [];
-  const rows = await db.getAllAsync<EventRow>("SELECT id, inputs_json, created_at, policy_version FROM decision_log WHERE decision_type = 'HISTORY_CORRECTION' AND accepted = 1 ORDER BY created_at, id");
   const events = rows.map(row => ({row, input: JSON.parse(row.inputs_json)})).filter(e => e.input.workoutId === workoutId);
   // Legacy events have no sequence. Keep their stable timestamp/id order before
   // explicitly sequenced events, independent of clock changes or backup row order.
