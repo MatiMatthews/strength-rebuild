@@ -22,8 +22,8 @@ export default function WeeklyReviewRoute() {
     void Promise.resolve().then(async () => {
       if (!live || !focused) return;
       setError(false);
-      const [value, context] = await Promise.all([weeklyReviews.listPendingWeeks(), programs.getTodayContext()]);
-      if (live) { setWeeks(value); setCycleComplete(Boolean(context.lifecycle?.awaitingConfirmation)); }
+      const [value, context] = await Promise.all([weeklyReviews.listPendingWeeks(), programs.listCycleLifecycles()]);
+      if (live) { setWeeks(value); setCycleComplete(context.some(cycle => cycle.status === 'ACTIVE' && cycle.awaitingConfirmation)); }
     }).catch(() => { if (live) setError(true); });
     return () => { live = false; };
   }, [weeklyReviews, programs, revision, focused]);
