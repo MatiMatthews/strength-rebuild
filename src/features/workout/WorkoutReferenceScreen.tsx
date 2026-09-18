@@ -708,7 +708,8 @@ export function WorkoutReferenceScreen({
                   accessibilityLabel={`Descanso ${preset} segundos`}
                   key={preset}
                   onPress={() => updateTimer(startTimer(preset, Date.now()))}
-                  style={[styles.preset, { borderColor: theme.border }]}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.preset, { borderColor: theme.textMuted, borderWidth: pressed ? 2 : 1, backgroundColor: theme.surface }]}
                 >
                   <AppText>{preset}s</AppText>
                 </Pressable>
@@ -820,6 +821,7 @@ export function WorkoutReferenceScreen({
               <View style={styles.commands}>
                 <ActionButton
                   accessibilityLabel={`Completar serie ${index + 1}`}
+                  busy={savingSet}
                   disabled={set.pain >= 5 || savingSet}
                   onPress={async () => {
                     if (completionLock.current) return;
@@ -846,7 +848,7 @@ export function WorkoutReferenceScreen({
                     set.disposition === "COMPLETED" ? "primary" : "secondary"
                   }
                 >
-                  Completar
+                  {savingSet ? "Guardando…" : "Completar"}
                 </ActionButton>
                 <ActionButton
                   accessibilityLabel={`Omitir serie ${index + 1}`}

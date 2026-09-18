@@ -1,4 +1,5 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as native from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { SettingsPanel } from './SettingsPanel';
 import { defaultSettings } from './settings';
 
@@ -65,4 +66,31 @@ it('shows unsupported saved values until explicit recovery, with no writes on fa
   expect(store.save).not.toHaveBeenCalled();
   await fireEvent.press(view.getByLabelText('Guardar configuración local'));
   await waitFor(() => expect(store.save).toHaveBeenCalledWith(expect.objectContaining({ equipment: ['bodyweight'], requirements: [{ kind: 'EXACT', value: 'bird-dog' }], restrictions: [] }), saved));
+});
+
+for (const scheme of ['light', 'dark'] as const) it(`locks a ${scheme} save through theme changes and retains a failed draft for retry`, async () => {
+  const theme = jest.spyOn(native, 'useColorScheme').mockReturnValue(scheme);
+  let finish!: () => void;
+  let fail!: (error: Error) => void;
+  const store = { load: jest.fn().mockResolvedValue(defaultSettings), save: jest.fn(() => new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; })) };
+  try {
+    const view = await render(<SettingsPanel store={store} />);
+    await waitFor(() => expect(view.getByLabelText('Incremento 1').props.value).toBe('1.25'));
+    await fireEvent.changeText(view.getByLabelText('Incremento 1'), '3,75');
+    await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+    expect(view.getByLabelText('Guardar configuración local').props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+    theme.mockReturnValue(scheme === 'light' ? 'dark' : 'light');
+    await view.rerender(<SettingsPanel store={store} />);
+    await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+    await fireEvent.press(view.getByLabelText('Añadir incremento'));
+    expect(store.save).toHaveBeenCalledTimes(1);
+    await act(async () => fail(new Error('Synthetic disk full')));
+    expect(view.getByLabelText('Incremento 1').props.value).toBe('3,75');
+    expect(view.getByText(/Tus cambios siguen aquí/)).toBeTruthy();
+    await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+    await act(async () => finish());
+    expect(store.save).toHaveBeenCalledTimes(2);
+    expect(store.save).toHaveBeenLastCalledWith(expect.objectContaining({ increments: [3.75, 2.5, 5] }), defaultSettings);
+    expect(view.getByText('Configuración guardada en este dispositivo.')).toBeTruthy();
+  } finally { theme.mockRestore(); }
 });

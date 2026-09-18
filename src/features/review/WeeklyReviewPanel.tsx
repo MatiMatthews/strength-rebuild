@@ -51,7 +51,7 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
       <View accessibilityLabel="Resultado de la semana" accessibilityRole="radiogroup" style={styles.options}>
         {outcomes.map(item => <Pressable disabled={busy} aria-checked={outcome === item.value} accessibilityLabel={item.label} accessibilityRole="radio" accessibilityState={{ checked: outcome === item.value, disabled: busy }} key={item.value} onPress={() => setOutcome(item.value)} style={[styles.option, { borderColor: outcome === item.value ? palette.strength : theme.border }]}><AppText variant="bodyStrong">{item.label}</AppText></Pressable>)}
       </View>
-      <ActionButton accessibilityLabel="Crear propuesta semanal" disabled={busy} onPress={() => run(async () => { const value = await reviews.propose({ cycleId, weekIndex: nextWeekIndex - 1, nextWeekIndex, outcome }); setProposal(value); setOutcome(value.outcome); })}>{busy ? 'Guardando…' : 'Revisar resultado'}</ActionButton>
+      <ActionButton accessibilityLabel="Crear propuesta semanal" busy={busy} disabled={busy} onPress={() => run(async () => { const value = await reviews.propose({ cycleId, weekIndex: nextWeekIndex - 1, nextWeekIndex, outcome }); setProposal(value); setOutcome(value.outcome); })}>{busy ? 'Guardando…' : 'Revisar resultado'}</ActionButton>
     </> : null}
     {ready && proposal ? <View style={styles.proposal}>
       <AppText variant="bodyStrong">Resultado: {outcomes.find(item => item.value === proposal.outcome)?.label ?? 'Guardado'}</AppText>
@@ -65,9 +65,9 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
         <AppText color="muted">{t.reason}</AppText>
       </View>)}
       <View style={styles.actions}>
-        <ActionButton accessibilityLabel="Aceptar propuesta semanal" disabled={busy || Boolean(proposal.targets?.unavailable)} onPress={() => decide('ACCEPTED')}>{busy ? 'Guardando…' : 'Aceptar resultado'}</ActionButton>
-        <ActionButton accessibilityLabel="Mantener plan semanal" disabled={busy} onPress={() => decide('KEPT')} tone="secondary">Mantener plan</ActionButton>
-        <ActionButton accessibilityLabel="Rechazar propuesta semanal" disabled={busy} onPress={() => decide('REJECTED')} tone="secondary">Rechazar resultado</ActionButton>
+        <ActionButton accessibilityLabel="Aceptar propuesta semanal" busy={busy} disabled={busy || Boolean(proposal.targets?.unavailable)} onPress={() => decide('ACCEPTED')}>{busy ? 'Guardando…' : 'Aceptar resultado'}</ActionButton>
+        <ActionButton accessibilityLabel="Mantener plan semanal" busy={busy} disabled={busy} onPress={() => decide('KEPT')} tone="secondary">Mantener plan</ActionButton>
+        <ActionButton accessibilityLabel="Rechazar propuesta semanal" busy={busy} disabled={busy} onPress={() => decide('REJECTED')} tone="secondary">Rechazar resultado</ActionButton>
       </View>
     </View> : null}
     {message ? <AppText accessibilityLiveRegion="polite">{message}</AppText> : null}

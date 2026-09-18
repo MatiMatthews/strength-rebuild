@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Platform, Share, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Share, StyleSheet, View } from 'react-native';
 
 import { classifyPortableBackup, type BackupService } from '@/application/export';
-import { encodeBackupForTransfer } from '../../../plugins/backup-transfer-runtime';
 import { ActionButton, AppText, TextField } from '@/design-system/v2.2/primitives';
 import { OperationalSection, StatusActionBand } from '@/design-system/v2.2/components';
 import { spacing , borders, palette, spacing as brandSpacing } from '@/design-system/v2.2/tokens';
@@ -33,14 +32,21 @@ export function backupNativeDisplayValue(document: string) {
 
 export function BackupPanel({ scenario, service }: { scenario?: 'backup-valid' | 'backup-corrupt' | undefined; service: BackupService }) {
   const [document, setDocument] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const run = async (action: () => Promise<void>) => {
+    if (pending.current) return;
+    pending.current = true; setBusy(true);
+    try { await action(); } finally { pending.current = false; setBusy(false); }
+  };
   const [preview, setPreview] = useState<{ records: number; conflicts: number } | null>(null);
   const [secret, setSecret] = useState('');
   const [legacyConfirmed, setLegacyConfirmed] = useState(false);
   const [message, setMessage] = useState('');
   const [messageDanger, setMessageDanger] = useState(false);
   const inputKind = document ? (() => { try { return classifyPortableBackup(document).kind; } catch { return null; } })() : null;
-  const inspect = async () => { try { setPreview(await service.previewPortable(document, secret)); setMessageDanger(false); setMessage('Respaldo autenticado y válido. Revisa los conflictos antes de restaurar.'); } catch (error) { setPreview(null); setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo leer el respaldo.'); } };
-  const restore = async () => { try { await service.restorePortable(document, { secret, legacyConfirmed, replaceConfirmed: true }); setMessageDanger(false); setMessage('Respaldo restaurado de forma atómica.'); setPreview(null); setSecret(''); } catch (error) { setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo restaurar. La base local no cambió.'); } };
+  const inspect = () => run(async () => { try { setPreview(await service.previewPortable(document, secret)); setMessageDanger(false); setMessage('Respaldo autenticado y válido. Revisa los conflictos antes de restaurar.'); } catch (error) { setPreview(null); setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo leer el respaldo.'); } });
+  const restore = () => run(async () => { try { await service.restorePortable(document, { secret, legacyConfirmed, replaceConfirmed: true }); setMessageDanger(false); setMessage('Respaldo restaurado de forma atómica.'); setPreview(null); setSecret(''); } catch (error) { setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo restaurar. La base local no cambió.'); } });
   useEffect(() => {
     if (!scenario) return;
     void (async () => {
@@ -55,15 +61,16 @@ export function BackupPanel({ scenario, service }: { scenario?: 'backup-valid' |
   return <View testID="backup-operational-tools" style={styles.tools}>
     <OperationalSection label="RESPALDO LOCAL">
     <AppText color="muted">Exporta un respaldo con cifrado autenticado o pega uno existente. La contraseña nunca se guarda y no usa red ni nube.</AppText>
-    <TextField accessibilityLabel="Contraseña portátil del respaldo" label="Contraseña del respaldo" secureTextEntry autoCapitalize="none" autoComplete="off" autoCorrect={false} onChangeText={setSecret} value={secret} />
-    <ActionButton accessibilityLabel="Exportar respaldo cifrado" onPress={async () => { try { const exported = await service.exportEncrypted(secret); setMessage('Respaldo cifrado y autenticado listo para guardar.'); setMessageDanger(false); if (Platform.OS === 'android') setTimeout(() => setDocument(encodeBackupForTransfer(exported)), 2_000); else setDocument(exported); } catch (error) { setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo cifrar el respaldo.'); } }}>Exportar respaldo cifrado</ActionButton>
+    <TextField editable={!busy} accessibilityLabel="Contraseña portátil del respaldo" label="Contraseña del respaldo" secureTextEntry autoCapitalize="none" autoComplete="off" autoCorrect={false} onChangeText={setSecret} value={secret} />
+    <ActionButton busy={busy} accessibilityLabel="Exportar respaldo cifrado" onPress={() => { void run(async () => { try { const exported = await service.exportEncrypted(secret); setMessage('Respaldo cifrado y autenticado listo para guardar.'); setMessageDanger(false); setDocument(exported); } catch (error) { setMessageDanger(true); setMessage(error instanceof Error ? error.message : 'No se pudo cifrar el respaldo.'); } }); }}>Exportar respaldo cifrado</ActionButton>
     {document.length > NATIVE_BACKUP_EDITOR_LIMIT || isCompressedBackupTransport(document) ? <AppText color="muted" numberOfLines={1}>{backupNativeDisplayValue(document)}</AppText> : null}
-    <TextField accessibilityLabel="Documento JSON de respaldo" label="Documento JSON" multiline numberOfLines={5} selectTextOnFocus showSoftInputOnFocus={false} autoComplete="off" autoCorrect={false} spellCheck={false} keyboardType="visible-password" onChangeText={(value) => { setDocument((current) => backupEditorChange(current, value)); setPreview(null); }} value={backupEditorValue(document)} />
-    {document.length > NATIVE_BACKUP_EDITOR_LIMIT || isCompressedBackupTransport(document) ? <><AppText color="muted">El respaldo se conserva completo fuera del editor para proteger la estabilidad de este dispositivo. Compártelo o revisa el documento antes de restaurar.</AppText><ActionButton accessibilityLabel="Compartir respaldo completo" onPress={() => Share.share({ message: document, title: 'Respaldo Strength Rebuild' })} tone="secondary">Compartir respaldo</ActionButton></> : null}
-    {inputKind === 'legacy' ? <View style={{ gap: spacing.sm }}><AppText color="danger" variant="bodyStrong">Respaldo heredado sin cifrado ni autenticación</AppText><AppText color="muted">Continúa solo si reconoces el origen. La compresión no protege los datos.</AppText><ActionButton accessibilityLabel="Confirmar respaldo heredado sin protección" onPress={() => setLegacyConfirmed(true)} tone="secondary">{legacyConfirmed ? 'Riesgo heredado comprendido' : 'Entiendo y deseo revisar'}</ActionButton></View> : null}
-    <ActionButton accessibilityLabel="Revisar respaldo antes de restaurar" onPress={inspect} tone="secondary">Revisar respaldo</ActionButton>
-    {preview ? <View style={{ gap: spacing.sm }}><AppText variant="bodyStrong">{preview.records} registros · {preview.conflicts} conflictos</AppText><AppText color="muted">Restaurar reemplazará los datos locales actuales. Esta acción requiere confirmación explícita.</AppText><ActionButton accessibilityLabel="Confirmar restauración del respaldo" onPress={restore}>Confirmar y restaurar</ActionButton></View> : null}
-    {message ? <StatusActionBand actionLabel={messageDanger ? 'Revisar' : 'Listo'} detail={message} onAction={messageDanger ? inspect : () => undefined} title={messageDanger ? 'Respaldo inválido' : 'Estado del respaldo'} /> : null}
+    <TextField editable={!busy} accessibilityLabel="Documento JSON de respaldo" label="Documento JSON" multiline numberOfLines={5} selectTextOnFocus showSoftInputOnFocus={false} autoComplete="off" autoCorrect={false} spellCheck={false} keyboardType="visible-password" onChangeText={(value) => { setDocument((current) => backupEditorChange(current, value)); setPreview(null); }} value={backupEditorValue(document)} />
+    {document.length > NATIVE_BACKUP_EDITOR_LIMIT || isCompressedBackupTransport(document) ? <><AppText color="muted">El respaldo se conserva completo fuera del editor para proteger la estabilidad de este dispositivo. Compártelo o revisa el documento antes de restaurar.</AppText><ActionButton busy={busy} accessibilityLabel="Compartir respaldo completo" onPress={() => Share.share({ message: document, title: 'Respaldo Strength Rebuild' })} tone="secondary">Compartir respaldo</ActionButton></> : null}
+    {inputKind === 'legacy' ? <View style={{ gap: spacing.sm }}><AppText color="danger" variant="bodyStrong">Respaldo heredado sin cifrado ni autenticación</AppText><AppText color="muted">Continúa solo si reconoces el origen. La compresión no protege los datos.</AppText><ActionButton busy={busy} accessibilityLabel="Confirmar respaldo heredado sin protección" onPress={() => setLegacyConfirmed(true)} tone="secondary">{legacyConfirmed ? 'Riesgo heredado comprendido' : 'Entiendo y deseo revisar'}</ActionButton></View> : null}
+    <ActionButton busy={busy} accessibilityLabel="Revisar respaldo antes de restaurar" onPress={() => { void inspect(); }} tone="secondary">Revisar respaldo</ActionButton>
+    {preview ? <View style={{ gap: spacing.sm }}><AppText variant="bodyStrong">{preview.records} registros · {preview.conflicts} conflictos</AppText><AppText color="muted">Restaurar reemplazará los datos locales actuales. Esta acción requiere confirmación explícita.</AppText><ActionButton busy={busy} accessibilityLabel="Confirmar restauración del respaldo" onPress={() => { void restore(); }}>Confirmar y restaurar</ActionButton></View> : null}
+    {busy ? <AppText accessibilityRole="alert">Procesando respaldo…</AppText> : null}
+    {message ? <StatusActionBand busy={busy} actionLabel={messageDanger ? 'Revisar' : 'Listo'} detail={message} onAction={messageDanger ? inspect : () => undefined} title={messageDanger ? 'Respaldo inválido' : 'Estado del respaldo'} /> : null}
     </OperationalSection>
   </View>;
 }

@@ -101,7 +101,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => setSettings(current => ({ ...current, restrictions: current.restrictions.filter(value => value !== item) }))}>Quitar restricción guardada: {item}</ActionButton>
     </View>)}
     {feedback && feedback.requirementIndex === undefined ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
-    <ActionButton accessibilityLabel="Guardar configuración local" disabled={busy || !baseline} onPress={save}>Guardar configuración</ActionButton>
+    <ActionButton accessibilityLabel="Guardar configuración local" busy={busy} disabled={busy || !baseline} onPress={() => { void save(); }}>{busy ? 'Guardando…' : 'Guardar configuración'}</ActionButton>
     </OperationalSection>
   </View>;
 }

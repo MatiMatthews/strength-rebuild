@@ -36,13 +36,14 @@ export function CycleProgressBand({ current, total }: { current: number; total: 
   return <View accessibilityLabel={`Semana ${safeCurrent} de ${safeTotal}`} accessible accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: safeTotal, now: safeCurrent }} aria-valuemin={1} aria-valuemax={safeTotal} aria-valuenow={safeCurrent} style={styles.progressBand}>{Array.from({ length: safeTotal }, (_, index) => <View key={index} style={[styles.progressStep, index < safeCurrent && styles.progressComplete, index === safeCurrent - 1 && styles.progressCurrent]} />)}</View>;
 }
 
-export function StatusActionBand({ actionLabel, detail, onAction, title }: { actionLabel: string; detail?: string; onAction: () => void; title: string }) {
+export function StatusActionBand({ actionLabel, busy = false, detail, onAction, title }: { actionLabel: string; busy?: boolean; detail?: string; onAction: () => void; title: string }) {
   const theme = useAppTheme();
-  return <View style={[styles.statusBand, { borderColor: theme.text }]}><View style={styles.flex}><Text style={[styles.heading, { color: theme.text }]}>{title}</Text>{detail ? <Text accessibilityLabel={detail} style={[styles.body, { color: theme.textMuted }]}>{detail}</Text> : null}</View><Command label={actionLabel} onPress={onAction} /></View>;
+  return <View style={[styles.statusBand, { borderColor: theme.text }]}><View style={styles.flex}><Text style={[styles.heading, { color: theme.text }]}>{title}</Text>{detail ? <Text accessibilityLabel={detail} style={[styles.body, { color: theme.textMuted }]}>{detail}</Text> : null}</View><Command busy={busy} label={actionLabel} onPress={onAction} /></View>;
 }
 
-function Command({ icon: Icon, label, onPress }: { icon?: LucideIcon | undefined; label: string; onPress: () => void }) {
-  return <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.command, pressed && styles.pressed]}>{Icon ? <Icon color={palette.paper} size={20} /> : null}<Text style={styles.commandText}>{label}</Text></Pressable>;
+function Command({ busy = false, icon: Icon, label, onPress }: { busy?: boolean; icon?: LucideIcon | undefined; label: string; onPress: () => void }) {
+  const theme = useAppTheme();
+  return <Pressable accessibilityLabel={label} accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} aria-busy={busy} disabled={busy} onPress={onPress} style={({ pressed }) => [styles.command, { borderColor: theme.text, borderWidth: pressed && !busy ? 2 : 1 }]}>{Icon ? <Icon color={palette.paper} size={20} /> : null}<Text style={styles.commandText}>{label}</Text></Pressable>;
 }
 
 export function ExerciseRunSheetRow({ actionLabel, detail, icon, name, onPress, ordinal, trailing }: { actionLabel: string; detail: string; icon?: LucideIcon; name: string; onPress: () => void; ordinal: number; trailing?: ReactNode }) {
@@ -67,12 +68,15 @@ export function RuledHeader({ metrics = [], title }: { metrics?: readonly Metric
   const theme = useAppTheme(); return <View><Text style={[styles.title, { color: theme.text }]}>{title}</Text>{metrics.length ? <MetricStrip metrics={metrics} /> : null}</View>;
 }
 
-export function CommandButton({ children, disabled = false, onPress }: PropsWithChildren<{ disabled?: boolean; onPress: () => void }>) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.command, pressed && styles.pressed]}><Text style={styles.commandText}>{children}</Text></Pressable>;
+export function CommandButton({ children, disabled = false, busy = false, onPress }: PropsWithChildren<{ disabled?: boolean; busy?: boolean; onPress: () => void }>) {
+  const theme = useAppTheme();
+  const unavailable = disabled || busy;
+  return <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: unavailable }} aria-busy={busy} disabled={unavailable} onPress={onPress} style={({ pressed }) => [styles.command, { backgroundColor: unavailable ? theme.surfaceMuted : palette.ink, borderColor: unavailable ? theme.textMuted : theme.text, borderWidth: pressed && !unavailable ? 2 : 1 }]}><Text style={[styles.commandText, { color: unavailable ? theme.textMuted : palette.paper }]}>{children}</Text></Pressable>;
 }
 
 export function IconCommand({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
-  return <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.iconCommand, pressed && styles.pressed]}><Icon color={palette.paper} size={22} /></Pressable>;
+  const theme = useAppTheme();
+  return <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.iconCommand, { borderColor: theme.text, borderWidth: pressed ? 2 : 1 }]}><Icon color={palette.paper} size={22} /></Pressable>;
 }
 
 export function ChoiceControl({ accessibilityLabel, label, onPress, selected }: { accessibilityLabel?: string; label: string; onPress: () => void; selected: boolean }) {
@@ -112,7 +116,7 @@ const styles = StyleSheet.create({
   row: { alignItems: 'center', borderBottomWidth: borders.standard, borderColor: palette.line, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, minHeight: 72, paddingVertical: spacing.sm },
   flex: { flex: 1, minWidth: 140 }, heading: { ...typography.heading, color: palette.ink }, body: { ...typography.body, color: palette.steel },
   command: { alignItems: 'center', backgroundColor: palette.ink, borderRadius: radii.control, flexDirection: 'row', gap: spacing.sm, justifyContent: 'center', minHeight: 48, minWidth: 48, paddingHorizontal: spacing.lg },
-  commandText: { ...typography.bodyStrong, color: palette.paper }, pressed: { opacity: 0.72 },
+  commandText: { ...typography.bodyStrong, color: palette.paper },
   masthead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm }, mastheadText: { flex: 1, minWidth: 0 }, display: { ...typography.display, color: palette.ink }, compactDisplay: { fontSize: 22, lineHeight: 26 }, label: { ...typography.label, color: palette.ink }, phaseLabel: { ...typography.label, color: palette.paper }, title: { ...typography.title },
   iconCommand: { alignItems: 'center', backgroundColor: palette.ink, height: 48, justifyContent: 'center', width: 48 },
   choice: { alignItems: 'center', borderBottomColor: palette.line, borderBottomWidth: borders.standard, flexDirection: 'row', gap: spacing.md, minHeight: 56, padding: spacing.md }, choiceSelected: { backgroundColor: palette.signal }, choiceMark: { borderColor: palette.ink, borderWidth: borders.emphasis, height: 20, width: 20 }, choiceMarkSelected: { backgroundColor: palette.ink },

@@ -130,6 +130,7 @@ type ActionButtonProps = PropsWithChildren<{
   onPress: () => void;
   onPressIn?: () => void;
   tone?: 'primary' | 'secondary' | 'danger';
+  busy?: boolean;
   disabled?: boolean;
 }>;
 
@@ -137,6 +138,7 @@ export function ActionButton({
   accessibilityLabel,
   accessibilityRole = 'button',
   checked,
+  busy = false,
   children,
   disabled = false,
   icon: Icon,
@@ -145,16 +147,18 @@ export function ActionButton({
   tone = 'primary',
 }: ActionButtonProps) {
   const theme = useAppTheme();
+  disabled = disabled || busy;
   const backgroundColor =
     disabled ? theme.surfaceMuted : tone === 'primary' ? palette.strength : tone === 'danger' ? palette.stopSoft : theme.surface;
-  const borderColor = disabled ? theme.textMuted : tone === 'primary' ? theme.text : tone === 'danger' ? palette.stop : theme.textMuted;
+  const borderColor = disabled ? theme.textMuted : tone === 'primary' ? theme.text : tone === 'danger' ? theme.dangerText : theme.textMuted;
   const textColor = disabled ? theme.textMuted : tone === 'primary' ? palette.white : tone === 'danger' ? palette.stop : theme.text;
 
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole={accessibilityRole}
-      accessibilityState={{ checked, disabled }}
+      accessibilityState={{ busy, checked, disabled }}
+      aria-busy={busy}
       disabled={disabled}
       onPress={onPress}
       onPressIn={onPressIn}
