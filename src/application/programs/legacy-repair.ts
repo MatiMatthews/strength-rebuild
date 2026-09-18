@@ -1,3 +1,4 @@
+import { composeLegacyRepairs, type RepairAudit } from './repair-projection';
 import { effectiveWeeklySession } from '../progression/weekly-targets';
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import { prescribeCatalogExercise } from '../../domain/prescriptions/generator';
@@ -20,19 +21,10 @@ export interface LegacyRepairProposal {
 
 /** Originals remain in their snapshot columns; the accepted decision is the portable audit. */
 export async function effectiveSession(db: RepositoryDatabase, sessionPlanId: string, original: Session): Promise<Session> {
-  const rows = await db.getAllAsync<{ inputs_json: string; output_json: string }>(
-    'SELECT inputs_json, output_json FROM decision_log WHERE policy_version = ? AND accepted = 1 ORDER BY created_at, id', LEGACY_REPAIR_POLICY,
+  const rows = await db.getAllAsync<RepairAudit>(
+    'SELECT id, created_at, inputs_json, output_json FROM decision_log WHERE policy_version = ? AND accepted = 1 ORDER BY created_at, id', LEGACY_REPAIR_POLICY,
   );
-  let result = original;
-  for (const row of rows) {
-    const proposal = JSON.parse(row.inputs_json) as LegacyRepairProposal;
-    if (proposal.sessionPlanId !== sessionPlanId) continue;
-    const replacement = JSON.parse(row.output_json) as Session['exercises'][number];
-    const replace = (exercise: Session['exercises'][number]) => exercise.exerciseId === proposal.originalExerciseId ? replacement : exercise;
-    result = { ...result, exercises: result.exercises.map(replace),
-      ...(result.blocks ? { blocks: result.blocks.map(block => block.role === 'finish-review' ? block : { ...block, exercises: block.exercises.map(replace) }) } : {}) };
-  }
-  return effectiveWeeklySession(db, sessionPlanId, result);
+  return effectiveWeeklySession(db, sessionPlanId, composeLegacyRepairs(rows, sessionPlanId, original));
 }
 
 

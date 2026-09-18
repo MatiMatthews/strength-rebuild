@@ -1,3 +1,4 @@
+import { composeLegacyRepairs, type RepairAudit } from './repair-projection';
 import { inspectCycleCompletion, CYCLE_COMPLETION_POLICY, type CycleCompletion } from './cycle-completion';
 import { effectiveSession, LEGACY_REPAIR_POLICY, type LegacyRepairProposal } from './legacy-repair';
 import { resolveTrainingSettings, type TrainingSettings } from '../../features/settings/settings';
@@ -299,9 +300,12 @@ export class ProgramService {
       }
     };
     const cycle = JSON.parse(row.snapshot_json) as CyclePrescriptionSnapshot;
+    const repairs = await this.db.getAllAsync<RepairAudit>('SELECT id,created_at,inputs_json,output_json FROM decision_log WHERE policy_version=? AND accepted=1 ORDER BY created_at,id',LEGACY_REPAIR_POLICY);
     for (const week of cycle.weeks) for (const [index, session] of week.sessions.entries()) {
-      const stored = await this.db.getFirstAsync<{ id: string }>('SELECT s.id FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ? AND w.week_index = ? AND s.day_index = ?', id, week.index, index + 1);
-      validateSession(stored ? await effectiveSession(this.db, stored.id, session) : session);
+      const stored = await this.db.getFirstAsync<{ id: string; snapshot_json: string }>('SELECT s.id, s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ? AND w.week_index = ? AND s.day_index = ?', id, week.index, index + 1);
+      // Both stored representations must be catalog-valid. Repair source binding is
+      // checked against the canonical session below, not the older cycle snapshot.
+      validateSession(stored ? composeLegacyRepairs(repairs, stored.id, session, false) : session);
     }
     const sessions = await this.db.getAllAsync<CycleRow & { id: string }>(
       'SELECT s.id, s.snapshot_json FROM session_plan s JOIN training_week w ON w.id = s.training_week_id WHERE w.cycle_id = ?', id,

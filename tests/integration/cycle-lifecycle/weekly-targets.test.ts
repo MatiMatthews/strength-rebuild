@@ -120,7 +120,7 @@ it('never promotes a historical weekly output into a target authorization',async
  expect((await programs.getToday())!.session.exercises[0]!.target.reps.min).toBe(6);sqlite.close();
 });
 
-it('keeps repaired cohorts unavailable and avoids duplicating session progression',async()=>{
+it('rejects malformed repair audits and avoids duplicating session progression',async()=>{
  const {db,sqlite,reviews,programs}=await fixture();
  const s=await db.getFirstAsync<{id:string;snapshot_json:string}>("SELECT s.* FROM session_plan s JOIN training_week w ON w.id=s.training_week_id WHERE w.week_index=2 ORDER BY s.day_index LIMIT 1");
  await db.runAsync("INSERT INTO decision_log (id,schema_version,created_at,updated_at,decision_type,policy_version,inputs_json,output_json,accepted) VALUES ('session',1,'now','now','SESSION_PROGRESSION','session-review-v1',?,'{}',1)",JSON.stringify({target:{id:s!.id}}));
@@ -130,7 +130,7 @@ it('keeps repaired cohorts unavailable and avoids duplicating session progressio
  await expect(reviews.decide(p.id,'ACCEPTED')).rejects.toThrow();
  // The recovery option remains reachable, with the exact immutable plan retained.
  await reviews.decide(p.id,'KEPT');
- expect((await programs.getToday())!.session.exercises[0]!.target.reps.min).toBe(6);sqlite.close();
+ await expect(programs.getToday()).rejects.toThrow('auditoría');sqlite.close();
 });
 
 
@@ -251,7 +251,8 @@ it.each(['missing','corrected','unknown','safety','session','repaired','started'
  else if(change==='repaired'){expect(p.targets?.unavailable).toContain('reparadas');await expect(reviews.decide(p.id,'ACCEPTED')).rejects.toThrow();await reviews.decide(p.id,'KEPT');}
  else {expect(p.targets?.targets.filter(t=>t.exerciseId==='barbell-bench-press' && (change!=='session'||t.sessionId===target!.id)).every(t=>JSON.stringify(t.before)===JSON.stringify(t.after))).toBe(true);await reviews.decide(p.id,'ACCEPTED');}
  expect(await db.getAllAsync('SELECT snapshot_json FROM session_plan')).toEqual(before);
- if(change!=='unknown') expect((await programs.getToday())!.session.exercises[0]!.calculatedLoad).toBe(40);sqlite.close();
+ if(change==='repaired') await expect(programs.getToday()).rejects.toThrow('auditoría');
+ else if(change!=='unknown') expect((await programs.getToday())!.session.exercises[0]!.calculatedLoad).toBe(40);sqlite.close();
 });
 
 it.each(['missed','failed','repeated'] as const)('a reported %s outcome cannot fabricate failure or blanket reductions',async outcome=>{
@@ -259,4 +260,96 @@ it.each(['missed','failed','repeated'] as const)('a reported %s outcome cannot f
  const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome});
  expect(p.targets!.targets.every(t=>JSON.stringify(t.before)===JSON.stringify(t.after))).toBe(true);
  await reviews.decide(p.id,'ACCEPTED');expect((await programs.getToday())!.session.exercises.map(e=>e.calculatedLoad)).toEqual([40,40]);sqlite.close();
+});
+
+async function repairedFixture(failure: 'none' | 'missed' = 'none') {
+ const f=await fixture({failure});
+ const row=await f.db.getFirstAsync<{id:string;snapshot_json:string}>("SELECT s.id,s.snapshot_json FROM session_plan s JOIN training_week w ON w.id=s.training_week_id WHERE w.week_index=2 ORDER BY day_index LIMIT 1");
+ const original=JSON.parse(row!.snapshot_json);
+ original.exercises.push({...original.exercises[0],exerciseId:'unknown-legacy',calculatedLoad:999});
+ await f.db.runAsync('UPDATE session_plan SET snapshot_json=? WHERE id=?',JSON.stringify(original),row!.id);
+ await f.programs.applyLegacyRepair(await f.programs.prepareLegacyRepair(row!.id,'unknown-legacy','seated-dumbbell-press'));
+ return {...f,sessionId:row!.id};
+}
+
+it.each(['none','missed'] as const)('composes repaired and ordinary weekly targets with unknown replacement load (%s)',async failure=>{
+ const {db,sqlite,reviews,programs,workouts}=await repairedFixture(failure);
+ const backup=new BackupService(db);
+ const original=JSON.parse(await backup.export()).tables;
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:failure==='none'?'successful':'missed'});
+ expect(p.targets?.unavailable).toBeNull();
+ const replacement=p.targets!.targets.find(t=>t.exerciseId==='seated-dumbbell-press')!;
+ expect(replacement.before.calculatedLoad).toBeUndefined();expect(replacement.after).toEqual(replacement.before);
+ await reviews.decide(p.id,'ACCEPTED');
+ const today=(await new ProgramService(db).getToday())!;
+ expect(today.session.exercises[0]!.target.reps.min).toBe(failure==='none'?7:6);
+ expect(today.session.exercises[0]!.calculatedLoad).toBe(failure==='none'?40:38);
+ expect((await programs.listCycleSnapshots())[0]!.weeks[1]!.sessions[0]).toEqual(today.session);
+ expect(today.session.exercises[2]!.exerciseId).toBe('seated-dumbbell-press');expect(today.session.exercises[2]!.calculatedLoad).toBeUndefined();
+ const after=JSON.parse(await backup.export()).tables;
+ expect(after.session_plan).toEqual(original.session_plan);expect(after.workout_session).toEqual(original.workout_session);
+ expect(after.decision_log.filter((r:{policy_version:string})=>r.policy_version==='legacy-prescription-repair-v1')).toEqual(original.decision_log.filter((r:{policy_version:string})=>r.policy_version==='legacy-prescription-repair-v1'));
+ await backup.restorePortable(await backup.exportEncrypted('synthetic composition'),{secret:'synthetic composition',replaceConfirmed:true});
+ expect((await programs.getToday())!.session).toEqual(today.session);
+ await workouts.applyReadiness(today,{pain:0,painTrend:'stable',region:'other',reproducedByBraceCoughOrSneeze:false});
+ const draft=await workouts.startOrResume(today);expect(draft.exercises[0]!.sets[0]!.reps).toBe(failure==='none'?'7':'6');expect(draft.exercises[2]!.sets[0]!.load).not.toBe('999');
+ sqlite.close();
+});
+
+it.each(['KEPT','REJECTED'] as const)('closes a repaired cohort with %s without changing either audit',async choice=>{
+ const {db,sqlite,reviews,programs}=await repairedFixture();
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:'successful'});
+ const before=await db.getAllAsync('SELECT * FROM decision_log');
+ await reviews.decide(p.id,choice);await expect(reviews.decide(p.id,choice)).rejects.toThrow();
+ expect((await programs.getToday())!.session.exercises[0]!.target.reps.min).toBe(6);
+ expect(await db.getAllAsync("SELECT * FROM decision_log WHERE policy_version='legacy-prescription-repair-v1'")).toEqual(before.filter((r:any)=>r.policy_version==='legacy-prescription-repair-v1'));sqlite.close();
+});
+
+it.each(['repair','workout','restriction','target'] as const)('rejects arriving %s after a composed preview without partial application',async change=>{
+ const {db,sqlite,reviews,sessionId}=await repairedFixture();
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:'successful'});
+ if(change==='repair') await db.runAsync("UPDATE decision_log SET updated_at='changed',output_json='{}' WHERE policy_version='legacy-prescription-repair-v1'");
+ if(change==='workout') await db.runAsync("INSERT INTO workout_session(id,schema_version,created_at,updated_at,session_plan_id,status,prescribed_snapshot_json) VALUES ('arrived',1,'now','now',?,'IN_PROGRESS','{}')",sessionId);
+ if(change==='restriction') await db.runAsync("INSERT INTO active_restriction(id,schema_version,created_at,updated_at,kind,details_json,active) VALUES ('arrived',1,'now','now','abdominal','{}',1)");
+ if(change==='target') await db.runAsync("UPDATE session_plan SET snapshot_json=json_set(snapshot_json,'$.exercises[0].calculatedLoad',99) WHERE id=?",sessionId);
+ const before=JSON.parse(await new BackupService(db).export()).tables;
+ await expect(reviews.decide(p.id,'ACCEPTED')).rejects.toThrow('cambió');
+ expect(JSON.parse(await new BackupService(db).export()).tables).toEqual(before);
+ await reviews.decide(p.id,'KEPT');sqlite.close();
+});
+
+it('rolls back a mixed repaired target batch, retries once and rejects a second confirmation',async()=>{
+ const {db,sqlite,reviews}=await repairedFixture('missed');
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:'missed'});
+ const before=JSON.parse(await new BackupService(db).export()).tables;
+ sqlite.exec("CREATE TRIGGER fail_composed BEFORE INSERT ON decision_log WHEN NEW.decision_type='WEEKLY_PROGRESSION' BEGIN SELECT RAISE(ABORT,'audit failed'); END");
+ await expect(reviews.decide(p.id,'ACCEPTED')).rejects.toThrow('audit failed');
+ expect(JSON.parse(await new BackupService(db).export()).tables).toEqual(before);
+ sqlite.exec('DROP TRIGGER fail_composed');
+ const result=await Promise.allSettled([reviews.decide(p.id,'ACCEPTED'),reviews.decide(p.id,'ACCEPTED')]);
+ expect(result.map(r=>r.status)).toEqual(['fulfilled','rejected']);
+ expect(await db.getAllAsync("SELECT * FROM decision_log WHERE decision_type='WEEKLY_TARGETS'")).toHaveLength(1);sqlite.close();
+});
+
+it.each(['source','repair-output','repair-order','missing-repair','duplicate','effective','replacement-load','target-identity'] as const)('rejects a %s composition forgery before replacing the database',async fault=>{
+ const {db,sqlite,reviews}=await repairedFixture();
+ const p=await reviews.propose({cycleId:'targets',weekIndex:1,nextWeekIndex:2,outcome:'successful'});await reviews.decide(p.id,'ACCEPTED');
+ const backup=new BackupService(db);const original=JSON.parse(await backup.export());const forged=JSON.parse(JSON.stringify(original));
+ const repair=forged.tables.decision_log.find((r:any)=>r.policy_version==='legacy-prescription-repair-v1');
+ const target=forged.tables.decision_log.find((r:any)=>r.decision_type==='WEEKLY_TARGETS');
+ const output=JSON.parse(target.output_json);
+ if(fault==='source') {const input=JSON.parse(repair.inputs_json);input.source='{}';repair.inputs_json=JSON.stringify(input);}
+ if(fault==='repair-output') repair.output_json='{}';
+ if(fault==='repair-order') repair.created_at='9999-01-01';
+ if(fault==='missing-repair') forged.tables.decision_log=forged.tables.decision_log.filter((r:any)=>r.id!==repair.id);
+ if(fault==='duplicate') forged.tables.decision_log.push({...target});
+ if(fault==='effective') output.sessions[0].effective_snapshot_json=output.sessions[0].snapshot_json;
+ if(fault==='replacement-load') {const t=output.targets.find((t:any)=>t.exerciseId==='seated-dumbbell-press');t.before.calculatedLoad=999;t.after.calculatedLoad=999;}
+ if(fault==='target-identity') output.targets[0].exerciseId='seated-dumbbell-press';
+ // Keep the three stored target copies consistent: source/audit validation must still reject.
+ target.output_json=JSON.stringify(output);
+ const proposal=forged.tables.progression_proposal.find((r:any)=>r.id===p.id);const stored=JSON.parse(proposal.output_json);stored.targets=output;proposal.output_json=JSON.stringify(stored);
+ const review=forged.tables.decision_log.find((r:any)=>r.id===`decision-${p.id}`);const ri=JSON.parse(review.inputs_json);ri.originalOutput=proposal.output_json;review.inputs_json=JSON.stringify(ri);
+ await expect(backup.restore(JSON.stringify(forged),true)).rejects.toMatchObject({code:'corrupt'});
+ expect(JSON.parse(await backup.export()).tables).toEqual(original.tables);sqlite.close();
 });

@@ -1,3 +1,4 @@
+import { composeLegacyRepairs, type RepairAudit } from '../programs/repair-projection';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import type { RepositoryDatabase } from '../../data/repositories';
@@ -12,7 +13,7 @@ type Session = TodayData['session'];
 type Exercise = Session['exercises'][number];
 export const WEEKLY_TARGET_POLICY = 'weekly-targets-v1';
 export type WeeklyTarget = { sessionId: string; day: number; exerciseId: string; blockRole?: string; name: string; before: Exercise; after: Exercise; reason: string; input: ProgressionInput | null };
-export type TargetSession = { id: string; snapshot_json: string; status: string; started: number; day_index: number };
+export type TargetSession = { id: string; snapshot_json: string; status: string; started: number; day_index: number; repairs?: RepairAudit[]; effective_snapshot_json?: string };
 export type WeeklyTargets = { targets: WeeklyTarget[]; sessions: TargetSession[]; fingerprint: string; unavailable: string | null };
 const entries = (s: Session): Exercise[] => s.blocks ? s.blocks.filter(b=>b.role !== 'finish-review').flatMap(b=>b.exercises.map(e=>({...e, blockRole:b.role as NonNullable<Exercise['blockRole']>}))) : [...s.exercises];
 const same = (a: Exercise,b: Exercise) => a.exerciseId === b.exerciseId && a.blockRole === b.blockRole;
@@ -39,16 +40,23 @@ export async function inspectWeeklyTargets(db: RepositoryDatabase, cycleId: stri
   const readiness = await db.getAllAsync<{key:string;value_json:string}>("SELECT key,value_json FROM app_setting WHERE key LIKE 'session-readiness:%' ORDER BY key");
   const setting = await db.getFirstAsync<{value_json:string}>("SELECT value_json FROM app_setting WHERE key='training-settings'");
   const settings = resolveTrainingSettings(setting ? JSON.parse(setting.value_json) as TrainingSettings : null);
-  const repairs = await db.getAllAsync<{inputs_json:string}>("SELECT inputs_json FROM decision_log WHERE policy_version='legacy-prescription-repair-v1' AND accepted=1 ORDER BY id");
+  const repairs = await db.getAllAsync<RepairAudit>("SELECT id,created_at,inputs_json,output_json FROM decision_log WHERE policy_version='legacy-prescription-repair-v1' AND accepted=1 ORDER BY created_at,id");
   const sessionDecisions = await db.getAllAsync<{inputs_json:string}>("SELECT inputs_json FROM decision_log WHERE decision_type='SESSION_PROGRESSION' AND accepted=1 ORDER BY id");
   const history = await Promise.all(rows.map(async row=>({...row, prescribed:JSON.parse(row.prescribed_snapshot_json) as Session,
     ...(await projectHistory(db,row.id,JSON.parse(row.actual_snapshot_json) as WorkoutDraft,JSON.parse(row.prescribed_snapshot_json)))})));
   let unavailable: string | null = null;
   if (sessions.some(s=>s.status !== 'PLANNED' || s.started)) unavailable='La próxima semana ya tiene trabajo iniciado. Mantén o rechaza para conservarlo.';
-  if (repairs.some(r=>sessions.some(s=>s.id === JSON.parse(r.inputs_json).sessionPlanId))) unavailable='La próxima semana contiene referencias reparadas. Su ajuste semanal aún no está disponible; mantén o rechaza para conservar su auditoría.';
+  for (const session of sessions) {
+    const bound = repairs.filter(r=>JSON.parse(r.inputs_json).sessionPlanId===session.id);
+    if (!bound.length) continue;
+    try {
+      session.repairs=bound;
+      session.effective_snapshot_json=JSON.stringify(composeLegacyRepairs(bound,session.id,JSON.parse(session.snapshot_json)));
+    } catch { unavailable='La auditoría de referencias reparadas no es verificable. Mantén o rechaza para conservar el plan.'; }
+  }
   const wholeWeek = weeks.length > 0 && weeks.every(w=>w.status === 'COMPLETED' && rows.some(r=>r.session_plan_id === w.id));
   const targets: WeeklyTarget[] = [];
-  for (const session of sessions) for (const before of entries(JSON.parse(session.snapshot_json))) {
+  for (const session of sessions) for (const before of entries(JSON.parse(session.effective_snapshot_json ?? session.snapshot_json))) {
     let reason='No hay evidencia completa y compatible. Se conserva la prescripción.';
     let input: ProgressionInput | null = null;
     let after=before;
@@ -122,7 +130,7 @@ export async function effectiveWeeklySession(db: RepositoryDatabase,id:string,or
     const source=output.sessions.find(s=>s.id===id);
     const targets=output.targets.filter(t=>t.sessionId===id && targetChanged(t));
     if(!source || !targets.length) continue;
-    if(JSON.stringify(result)!==source.snapshot_json) throw new Error('La prescripción semanal cambió. Se conserva el original para revisión.');
+    if(JSON.stringify(result)!==(source.effective_snapshot_json ?? source.snapshot_json)) throw new Error('La prescripción semanal cambió. Se conserva el original para revisión.');
     result=applyWeeklyTargets(result,targets);
   }
   return result;
@@ -133,6 +141,7 @@ export async function effectiveWeeklySession(db: RepositoryDatabase,id:string,or
 export function validateWeeklyTargetsBackup(tables: Record<string, Record<string, unknown>[]>) {
   const invalid=()=>{throw new Error('Invalid weekly targets');};
   const seen=new Set<string>();
+  const reviewedWeeks=new Set<string>();
   for(const row of tables.decision_log ?? []) {
     if(row.policy_version !== WEEKLY_TARGET_POLICY && row.decision_type !== 'WEEKLY_TARGETS') continue;
     if(row.policy_version !== WEEKLY_TARGET_POLICY || row.decision_type !== 'WEEKLY_TARGETS' || row.accepted !== 1) invalid();
@@ -152,6 +161,9 @@ export function validateWeeklyTargetsBackup(tables: Record<string, Record<string
     if(recordedInput.cycleId!==stored.cycleId || recordedInput.weekIndex!==stored.weekIndex || recordedInput.outcome!==stored.outcome
       || reviewInput.originalInputs!==proposal!.inputs_json || reviewInput.originalOutput!==proposal!.output_json
       || reviewOutput.choice!=='ACCEPTED' || reviewOutput.prescriptionsChanged!==true) invalid();
+    const weekKey=JSON.stringify([input.cycleId,input.weekIndex]);
+    if(reviewedWeeks.has(weekKey)) invalid();
+    reviewedWeeks.add(weekKey);
     seen.add(String(row.id));
     const keys=new Set<string>();
     for(const session of output.sessions) {
@@ -159,7 +171,16 @@ export function validateWeeklyTargetsBackup(tables: Record<string, Record<string
       const original=tables.session_plan?.find(s=>s.id===session.id);
       const week=tables.training_week?.find(w=>w.id===original?.training_week_id);
       if(!original || original.snapshot_json!==session.snapshot_json || week?.cycle_id!==input.cycleId || week?.week_index!==input.weekIndex+1 || session.started!==0 || session.status!=='PLANNED') invalid();
-      const exercises=entries(JSON.parse(session.snapshot_json));
+      const bound=(tables.decision_log ?? []).filter(r=>r.policy_version==='legacy-prescription-repair-v1' && r.accepted===1 && JSON.parse(String(r.inputs_json)).sessionPlanId===session.id)
+        .sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
+        .map(r=>({id:String(r.id),created_at:String(r.created_at),inputs_json:String(r.inputs_json),output_json:String(r.output_json)}));
+      let effective=JSON.parse(session.snapshot_json);
+      if (bound.length || session.repairs || session.effective_snapshot_json) {
+        if (!bound.length || JSON.stringify(bound)!==JSON.stringify(session.repairs) || bound.some(r=>r.created_at>String(proposal!.created_at)) || String(proposal!.created_at)>String(row.created_at)) invalid();
+        effective=composeLegacyRepairs(bound,session.id,effective);
+        if (JSON.stringify(effective)!==session.effective_snapshot_json) invalid();
+      }
+      const exercises=entries(effective);
       const targets=output.targets.filter(t=>t.sessionId===session.id);
       if(targets.length!==exercises.length) invalid();
       for(let i=0;i<targets.length;i++) {
