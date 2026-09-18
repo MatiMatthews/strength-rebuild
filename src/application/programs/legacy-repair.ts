@@ -1,3 +1,4 @@
+import { effectiveWeeklySession } from '../progression/weekly-targets';
 import { exerciseCatalog } from '../../data/seeds/exercises';
 import { prescribeCatalogExercise } from '../../domain/prescriptions/generator';
 import { resolveCatalogRequirements } from '../../domain/prescriptions/catalog-requirements';
@@ -31,7 +32,7 @@ export async function effectiveSession(db: RepositoryDatabase, sessionPlanId: st
     result = { ...result, exercises: result.exercises.map(replace),
       ...(result.blocks ? { blocks: result.blocks.map(block => block.role === 'finish-review' ? block : { ...block, exercises: block.exercises.map(replace) }) } : {}) };
   }
-  return result;
+  return effectiveWeeklySession(db, sessionPlanId, result);
 }
 
 

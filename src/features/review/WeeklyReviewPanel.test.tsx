@@ -15,6 +15,7 @@ describe('WeeklyReviewPanel', () => {
     await fireEvent.press(view.getByLabelText('Restringida'));
     await fireEvent.press(view.getByLabelText('Crear propuesta semanal'));
     expect(await view.findByText('Restricción activa.')).toBeTruthy();
+    expect(view.getByText('Resultado: Restringida')).toBeTruthy();
     expect(reviews.decide).not.toHaveBeenCalled();
     await fireEvent.press(view.getByLabelText('Rechazar propuesta semanal'));
     await waitFor(() => expect(reviews.decide).toHaveBeenCalledWith('p1', 'REJECTED'));
