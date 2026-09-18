@@ -15,7 +15,7 @@ import { useAppTheme } from '@/design-system/use-app-theme';
 import type { CyclePrescriptionRequest, CyclePrescriptionSnapshot } from '@/domain/prescriptions/generator';
 import type { WeeklyReviewService } from '@/application/progression/weekly-review';
 import type { PendingWeek } from '@/application/progression/weekly-review';
-import { defaultSettings, type SettingsStore, type TrainingSettings } from '@/features/settings/settings';
+import { defaultSettings, planningProfile, type SettingsStore, type TrainingSettings } from '@/features/settings/settings';
 import type { BackupService } from '@/application/export';
 
 export interface PlanPrograms {
@@ -98,7 +98,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
     if (!Number.isInteger(length) || length < 1 || length > 12) { setFeedback({ message: 'Ingresa una duración entre 1 y 12 semanas.', tone: 'danger' }); return; }
     setBusy(true);
     try {
-          const profile = settingsStore && planningSettings.profile ? { ...planningSettings.profile, units: planningSettings.units, availableIncrement: Math.min(...planningSettings.increments) } : undefined;
+          const profile = settingsStore && planningSettings.profile ? planningProfile(planningSettings) : undefined;
           const planningInputs = settingsStore ? {
             equipment: [...planningSettings.equipment],
             schedule: [...planningSettings.schedule],

@@ -9,6 +9,8 @@ import { defaultSettings, validateSettings, type SettingsStore, type TrainingSet
 
 import { catalogEquipment, equipmentLabels, normalizeEquipment, normalizeRequirement, requirementKinds, requirementOptions, restrictionLabels } from '../../domain/prescriptions/catalog-options';
 
+import { commitReferences, referenceDraft, referenceKeys, referenceLabels, type ReferenceDraft } from './reference-draft';
+
 const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 export function SettingsPanel({ scenario, store }: { scenario?: 'settings-validation' | undefined; store: SettingsStore }) {
@@ -16,6 +18,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
   const [settings, setSettings] = useState<TrainingSettings>(defaultSettings);
   const [baseline, setBaseline] = useState<TrainingSettings | null>(null);
   const [increments, setIncrements] = useState<string[]>([]);
+  const [references, setReferences] = useState<ReferenceDraft>(() => referenceDraft(defaultSettings));
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const [feedback, setFeedback] = useState<{ message: string; danger?: boolean; requirementIndex?: number } | null>(null);
@@ -25,6 +28,7 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       if (!live) return;
       setBaseline(saved);
       setSettings(saved);
+      setReferences(referenceDraft(saved));
       setIncrements(scenario === 'settings-validation' ? [] : saved.increments.map(String));
       if (scenario === 'settings-validation') setFeedback({ danger: true, message: 'Añade al menos un incremento positivo.' });
     }).catch(() => { if (live) setFeedback({ danger: true, message: 'No se pudo cargar la configuración. Vuelve a abrir esta pantalla.' }); });
@@ -41,13 +45,17 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       setFeedback({ danger: true, message: 'Escribe cada incremento como un número positivo completo (por ejemplo, 1,25).' });
       return;
     }
-    const next = { ...settings, increments: increments.map((text) => Number(text.trim().replace(',', '.'))) };
+    let next: TrainingSettings;
+    try {
+      next = commitReferences({ ...settings, increments: increments.map((text) => Number(text.trim().replace(',', '.'))) }, references);
+      if (next.profile) next.profileUnit = baseline.profileUnit ?? baseline.units;
+    } catch (error) { setFeedback({ danger: true, message: (error as Error).message }); return; }
     const result = validateSettings(next);
     if (!result.success) return setFeedback({ danger: true, message: result.message, ...(result.requirementIndex !== undefined ? { requirementIndex: result.requirementIndex } : {}) });
     saving.current = true; setBusy(true);
     try {
       await store.save(next, baseline);
-      setSettings(next); setBaseline(next);
+      setSettings(next); setBaseline(next); setReferences(referenceDraft(next));
       setFeedback({ message: 'Configuración guardada en este dispositivo.' });
     } catch (error) {
       setFeedback({ danger: true, message: error instanceof Error && error.name === 'SettingsConflictError' ? error.message : 'No se pudo guardar la configuración. Tus cambios siguen aquí; vuelve a intentar guardar.' });
@@ -65,6 +73,17 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       <ActionButton accessibilityLabel={`Quitar incremento ${index + 1}`} disabled={busy} onPress={() => setIncrements((current) => current.filter((_, i) => i !== index))} tone="secondary">Quitar incremento {index + 1}</ActionButton>
     </View>)}
     <ActionButton accessibilityLabel="Añadir incremento" disabled={busy || !baseline} onPress={() => setIncrements((current) => [...current, ''])} tone="secondary">Añadir incremento</ActionButton>
+    <AppText variant="label">Referencias personales</AppText>
+    <AppText color="muted">Usa referencias que ya conoces; no necesitas probar tu máximo. No lo sé deja la carga por definir. Solo cambia el próximo plan, nunca el trabajo guardado.</AppText>
+    {referenceKeys.map(key => <View key={key} style={{ gap: spacing.sm }}>
+      <AppText variant="label">{referenceLabels[key]}</AppText>
+      <View style={styles.wrap}>
+        {choice('La conozco', references[key].known, () => setReferences(current => ({ ...current, [key]: { ...current[key], known: true, edited: true } })), `Conozco mi referencia de ${referenceLabels[key]}`)}
+        {choice('No lo sé', !references[key].known, () => setReferences(current => ({ ...current, [key]: { ...current[key], known: false, edited: true } })), `No sé mi referencia de ${referenceLabels[key]}`)}
+      </View>
+      {references[key].known ? <TextField editable={!busy && !!baseline} accessibilityLabel={`Referencia de ${referenceLabels[key]}`} label={`${referenceLabels[key]} (${key === 'strictPullUpCapacity' ? 'repeticiones' : baseline?.profileUnit ?? baseline?.units ?? 'kg'})`} keyboardType="decimal-pad" value={references[key].text} onChangeText={text => setReferences(current => ({ ...current, [key]: { ...current[key], text, edited: true } }))} /> : <AppText color="muted">Sin referencia · no inventaremos una carga</AppText>}
+      <AppText color="muted">{references[key].edited ? 'Cambio sin guardar' : !references[key].known ? 'Referencia desconocida' : settings.referenceSources?.[key] === 'user' ? 'Referencia indicada por ti' : 'Referencia guardada previamente'}</AppText>
+    </View>)}
     <AppText variant="label">Equipo disponible</AppText>
     <AppText color="muted">El peso corporal está siempre disponible. Marca solo el equipo al que tienes acceso.</AppText>
     <View style={styles.wrap}>{catalogEquipment.filter(item => item !== 'bodyweight').map((item) => <View key={item}>{choice(equipmentLabels[item] ?? item, settings.equipment.some(value => normalizeEquipment(value) === item), () => setSettings(current => ({ ...current, equipment: current.equipment.some(value => normalizeEquipment(value) === item) ? current.equipment.filter(value => normalizeEquipment(value) !== item) : [...current.equipment, item] })), `Alternar equipo ${equipmentLabels[item] ?? item}`)}</View>)}</View>
@@ -101,6 +120,10 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
       <ActionButton disabled={busy || !baseline} tone="secondary" onPress={() => setSettings(current => ({ ...current, restrictions: current.restrictions.filter(value => value !== item) }))}>Quitar restricción guardada: {item}</ActionButton>
     </View>)}
     {feedback && feedback.requirementIndex === undefined ? <FeedbackBanner message={feedback.message} tone={feedback.danger ? 'danger' : 'success'} /> : null}
+    <ActionButton accessibilityLabel="Cancelar cambios de configuración" disabled={busy || !baseline} tone="secondary" onPress={() => {
+      if (!baseline || saving.current) return;
+      setSettings(baseline); setIncrements(baseline.increments.map(String)); setReferences(referenceDraft(baseline)); setFeedback(null);
+    }}>Cancelar cambios</ActionButton>
     <ActionButton accessibilityLabel="Guardar configuración local" busy={busy} disabled={busy || !baseline} onPress={() => { void save(); }}>{busy ? 'Guardando…' : 'Guardar configuración'}</ActionButton>
     </OperationalSection>
   </View>;

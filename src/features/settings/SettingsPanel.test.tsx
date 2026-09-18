@@ -94,3 +94,32 @@ for (const scheme of ['light', 'dark'] as const) it(`locks a ${scheme} save thro
     expect(view.getByText('Configuración guardada en este dispositivo.')).toBeTruthy();
   } finally { theme.mockRestore(); }
 });
+
+it('edits known/unknown references without consuming intermediate text and cancels without a write', async () => {
+  const store = { load: jest.fn().mockResolvedValue(defaultSettings), save: jest.fn().mockRejectedValueOnce(new Error('disk full')).mockResolvedValue(undefined) };
+  const view = await render(<SettingsPanel store={store} />);
+  await waitFor(() => expect(view.getByLabelText('Incremento 1').props.value).toBe('1.25'));
+  await fireEvent.press(view.getByLabelText('Conozco mi referencia de Press banca'));
+  const field = () => view.getByLabelText('Referencia de Press banca');
+  for (const value of ['60,', '0', '-2', '3,4,5', 'Infinity']) {
+    await fireEvent.changeText(field(), value);
+    await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+    expect(field().props.value).toBe(value);
+    expect(store.save).not.toHaveBeenCalled();
+  }
+  await fireEvent.changeText(field(), '60,5');
+  await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+  await waitFor(() => expect(view.getByText(/Tus cambios siguen aquí/)).toBeTruthy());
+  expect(field().props.value).toBe('60,5');
+  await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+  await waitFor(() => expect(view.getByText('Configuración guardada en este dispositivo.')).toBeTruthy());
+  expect(store.save).toHaveBeenLastCalledWith(expect.objectContaining({ profile: { benchPressReference: 60.5 }, profileUnit: 'kg', referenceSources: expect.objectContaining({ benchPressReference: 'user', backSquatReference: 'unknown' }) }), defaultSettings);
+  await fireEvent.press(view.getByLabelText('No sé mi referencia de Press banca'));
+  await fireEvent.press(view.getByLabelText('Cancelar cambios de configuración'));
+  expect(field().props.value).toBe('60.5');
+  expect(store.save).toHaveBeenCalledTimes(2);
+  await fireEvent.press(view.getByLabelText('No sé mi referencia de Press banca'));
+  await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+  await waitFor(() => expect(store.save).toHaveBeenCalledTimes(3));
+  expect(store.save).toHaveBeenLastCalledWith(expect.objectContaining({ profile: {}, referenceSources: expect.objectContaining({ benchPressReference: 'unknown' }) }), expect.objectContaining({ profile: { benchPressReference: 60.5 } }));
+});

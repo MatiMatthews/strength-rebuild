@@ -28,3 +28,22 @@ it('rejects invalid merged constraints before atomic persistence and preserves u
   expect(saved.schedule).toEqual(baseline.schedule);
   expect(saved.increments).toEqual(baseline.increments);
 });
+
+it('preserves legacy values and marker on repeated reads, pins units and rejects concurrent reference edits atomically', async () => {
+  let saved: TrainingSettings = { units: 'kg', increments: [1.25], equipment: ['Barra', 'Banco'], schedule: [1,3,5], requirements: [{ kind: 'EXACT', value: 'barbell-bench-press' }], restrictions: [], demoProfileId: 'synthetic-strength-demo-v1', profile: { benchPressReference: 60, deadliftReference: 100, backSquatReference: 80, strictPullUpCapacity: 5 } };
+  const original = JSON.stringify(saved);
+  const repository = { get: async () => ({ value: saved }), compareAndSave: jest.fn(async ({ value }) => { saved = value; return true; }) };
+  const store = createSettingsStore(repository as unknown as SettingRepository);
+  const baseline = await store.load();
+  expect(JSON.stringify(await store.load())).toBe(original);
+  expect(repository.compareAndSave).not.toHaveBeenCalled();
+  await store.save({ ...baseline, units: 'lb' }, baseline);
+  expect(saved).toMatchObject({ units: 'lb', profileUnit: 'kg', profile: baseline.profile, demoProfileId: baseline.demoProfileId });
+  const current = await store.load();
+  saved = { ...current, profile: { ...current.profile, benchPressReference: 70 } };
+  await expect(store.save({ ...current, profile: { benchPressReference: 80 } }, current)).rejects.toThrow('configuración cambió');
+  expect(saved.profile?.benchPressReference).toBe(70);
+  expect(repository.compareAndSave).toHaveBeenCalledTimes(1);
+  await expect(store.save({ ...saved, profile: { benchPressReference: NaN } }, saved)).rejects.toThrow('positivas');
+  expect(repository.compareAndSave).toHaveBeenCalledTimes(1);
+});

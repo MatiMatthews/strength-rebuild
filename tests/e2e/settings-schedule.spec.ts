@@ -24,6 +24,9 @@ test('supported schedule and decimal increments save atomically into the next pr
     await expect(page.getByLabel('Incremento 1', { exact: true })).toHaveValue(value);
     expect(await readPersistence(page, info)).toEqual(original);
   }
+  // Explicit synthetic reference exercises rounding without depending on personal defaults.
+  await page.getByLabel('Conozco mi referencia de Press banca', { exact: true }).click();
+  await page.getByLabel('Referencia de Press banca', { exact: true }).fill('60');
   await page.getByLabel('Incremento 1', { exact: true }).fill('7,25');
   await page.getByRole('button', { name: 'Quitar incremento 3', exact: true }).click();
   await page.getByRole('button', { name: 'Quitar incremento 2', exact: true }).click();
