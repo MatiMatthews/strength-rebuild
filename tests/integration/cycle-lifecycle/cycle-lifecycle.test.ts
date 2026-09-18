@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import { ProgramService } from '../../../src/application/programs/program-service';
+import { SessionReviewService } from '../../../src/application/progression/session-review';
 import { WeeklyReviewService } from '../../../src/application/progression/weekly-review';
 import { WorkoutService } from '../../../src/application/workouts/workout-service';
 import { migrateDatabase, type MigrationDatabase } from '../../../src/data/migrations';
@@ -44,7 +45,15 @@ describe('full persisted cycle lifecycle', () => {
     await db.runAsync("UPDATE training_week SET status = 'REVIEW' WHERE cycle_id = 'hypertrophy' AND week_index = 1");
     const reviews = new WeeklyReviewService(db, () => '2026-08-18T02:30:00.000Z', () => 'review-hypertrophy');
     await reviews.decide((await reviews.propose({ cycleId: 'hypertrophy', weekIndex: 1, nextWeekIndex: 2, outcome: 'successful' })).id, true);
+    await expect(programs.completeCycleAndActivateNext('hypertrophy', 'hypertrophy--to--strength')).rejects.toThrow();
+    await db.runAsync("UPDATE training_week SET status = 'COMPLETED' WHERE cycle_id = 'hypertrophy'");
+    await db.runAsync("UPDATE session_plan SET status = 'COMPLETED' WHERE training_week_id IN (SELECT id FROM training_week WHERE cycle_id = 'hypertrophy')");
+    const sessionReviews = new SessionReviewService(db);
+    for (const pending of await sessionReviews.listPending()) await sessionReviews.decide(pending, 'KEPT');
     await programs.completeCycleAndActivateNext('hypertrophy', 'hypertrophy--to--strength');
+    await expect(programs.completeCycleAndActivateNext('hypertrophy--to--strength', 'strength')).rejects.toThrow('descarga');
+    await db.runAsync("UPDATE training_week SET status = 'COMPLETED' WHERE cycle_id = 'hypertrophy--to--strength'");
+    await db.runAsync("UPDATE session_plan SET status = 'COMPLETED' WHERE training_week_id IN (SELECT id FROM training_week WHERE cycle_id = 'hypertrophy--to--strength')");
     await programs.completeCycleAndActivateNext('hypertrophy--to--strength', 'strength');
     expect(await db.getFirstAsync<{ id: string }>("SELECT id FROM cycle WHERE status = 'ACTIVE'")).toEqual({ id: 'strength' });
 

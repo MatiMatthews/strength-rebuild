@@ -1,3 +1,4 @@
+import { inspectCycleCompletion, CYCLE_COMPLETION_POLICY, type CycleCompletion } from './cycle-completion';
 import { effectiveSession, LEGACY_REPAIR_POLICY, type LegacyRepairProposal } from './legacy-repair';
 import { resolveTrainingSettings, type TrainingSettings } from '../../features/settings/settings';
 import { exerciseCatalog } from '../../data/seeds/exercises';
@@ -13,7 +14,7 @@ import type { RepositoryDatabase } from '../../data/repositories';
 type CycleRow = { snapshot_json: string };
 type IdRow = { id: string };
 type CountRow = { count: number };
-type CycleKindRow = { kind: CyclePrescriptionSnapshot['type']; status: string; rowid: number };
+const completing = new WeakSet<RepositoryDatabase>();
 
 function requestFingerprint(requests: readonly CyclePrescriptionRequest[]): string {
   const input = JSON.stringify(requests);
@@ -308,45 +309,44 @@ export class ProgramService {
     for (const session of sessions) validateSession(await effectiveSession(this.db, session.id, JSON.parse(session.snapshot_json) as TodayData['session']));
   }
 
-  /** Applies an explicitly confirmed lifecycle step; time alone never calls this seam. */
+  async prepareCycleCompletion(currentId: string): Promise<CycleCompletion> {
+    return inspectCycleCompletion(this.db, currentId);
+  }
+
+  async confirmCycleCompletion(preview: CycleCompletion): Promise<void> {
+    if (completing.has(this.db)) throw new Error('Ya se está guardando el cambio de ciclo.');
+    completing.add(this.db);
+    try {
+      await this.db.withTransactionAsync(async () => {
+        const id = `cycle-completion:${preview.currentId}`;
+        const existing = await this.db.getFirstAsync<{ inputs_json: string }>('SELECT inputs_json FROM decision_log WHERE id = ?', id);
+        if (existing) {
+          if (existing.inputs_json === JSON.stringify(preview)) return;
+          throw new Error('Este ciclo ya fue confirmado. Vuelve al plan.');
+        }
+        const fresh = await this.prepareCycleCompletion(preview.currentId);
+        if (fresh.reason) throw new Error(fresh.reason);
+        if (JSON.stringify(fresh) !== JSON.stringify(preview)) throw new Error('El plan cambió. Revisa de nuevo antes de confirmar.');
+        if (fresh.nextId) await this.validateActivation(fresh.nextId);
+        const timestamp = this.now();
+        const completed = await this.db.runAsync("UPDATE cycle SET status = 'COMPLETED', updated_at = ? WHERE id = ? AND status = 'ACTIVE'", timestamp, fresh.currentId);
+        if (completed.changes !== 1) throw new Error('El ciclo activo cambió.');
+        if (fresh.nextId) {
+          const activated = await this.db.runAsync("UPDATE cycle SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status = 'READY'", timestamp, fresh.nextId);
+          if (activated.changes !== 1) throw new Error('El siguiente ciclo cambió.');
+        }
+        await this.db.runAsync(`INSERT INTO decision_log (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
+          VALUES (?, 1, ?, ?, 'CYCLE_COMPLETION', ?, ?, ?, 1, ?)`, id, timestamp, timestamp, CYCLE_COMPLETION_POLICY,
+          JSON.stringify(preview), JSON.stringify({ completedId: fresh.currentId, activatedId: fresh.nextId }), timestamp);
+      });
+    } finally { completing.delete(this.db); }
+  }
+
+  /** Compatibility seam: the same guarded transaction as the explicit consumer. */
   async completeCycleAndActivateNext(currentId: string, nextId: string): Promise<void> {
-    if (currentId === nextId) throw new Error('The next cycle must differ from the completed cycle');
-    const [current, next] = await Promise.all([
-      this.db.getFirstAsync<CycleKindRow>('SELECT rowid, kind, status FROM cycle WHERE id = ?', currentId),
-      this.db.getFirstAsync<CycleKindRow>('SELECT rowid, kind, status FROM cycle WHERE id = ?', nextId),
-    ]);
-    if (!current || !next) throw new Error('Both current and next cycles must exist');
-    if (current.status === 'COMPLETED' && next.status === 'ACTIVE') return;
-    if (next.rowid !== current.rowid + 1) throw new Error('Only the adjacent confirmed transition cycle can be activated');
-    const loadingCycles: readonly CyclePrescriptionSnapshot['type'][] = ['hypertrophy', 'strength', 'power'];
-    if (loadingCycles.includes(current.kind) && loadingCycles.includes(next.kind) && current.kind !== next.kind) {
-      throw new Error('A confirmed transition cycle is required between different loading cycles');
-    }
-    const timestamp = this.now();
-    await this.db.withTransactionAsync(async () => {
-      await this.validateActivation(nextId);
-      const unfinished = await this.db.getFirstAsync<CountRow>(
-        "SELECT COUNT(*) AS count FROM training_week WHERE cycle_id = ? AND status <> 'COMPLETED'",
-        currentId,
-      );
-      if ((unfinished?.count ?? 0) > 0 && current.kind !== 'transition') {
-        const acceptedReview = await this.db.getFirstAsync<CountRow>(
-          "SELECT COUNT(*) AS count FROM decision_log WHERE policy_version = 'weekly-review-v1' AND accepted = 1 AND inputs_json LIKE ?",
-          `%\"cycleId\":\"${currentId}\"%`,
-        );
-        if ((acceptedReview?.count ?? 0) === 0) throw new Error(`Cycle ${currentId} still requires reviewed weeks`);
-      }
-      const completed = await this.db.runAsync(
-        "UPDATE cycle SET status = 'COMPLETED', updated_at = ? WHERE id = ? AND status = 'ACTIVE'",
-        timestamp, currentId,
-      );
-      if (completed.changes !== 1) throw new Error(`Cycle ${currentId} is not active`);
-      const activated = await this.db.runAsync(
-        "UPDATE cycle SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status = 'READY'",
-        timestamp, nextId,
-      );
-      if (activated.changes !== 1) throw new Error(`Cycle ${nextId} is not ready for activation`);
-    });
+    const preview = await this.prepareCycleCompletion(currentId);
+    if (preview.nextId !== nextId) throw new Error('Solo se permite el siguiente ciclo del mismo plan.');
+    await this.confirmCycleCompletion(preview);
   }
 
   async countSessionSnapshots(): Promise<number> {
