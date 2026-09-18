@@ -47,6 +47,8 @@ interface ExercisePrescription {
   readonly qualityStops: readonly string[];
   readonly loadProvenance?: string;
   readonly calculatedLoad?: number;
+  readonly loadUnit?: 'kg' | 'lb';
+  readonly loadSource?: { readonly kind: 'strength-reference'; readonly value: number; readonly unit: 'kg' | 'lb'; readonly percent: number; readonly increment: number };
   readonly lumbarDemand?: 'low' | 'moderate' | 'high';
   readonly braceDemand?: 'low' | 'moderate' | 'high';
   readonly plyometric?: boolean;
@@ -153,6 +155,8 @@ export function prescribeCatalogExercise(
       const increment = request.profile.availableIncrement;
       return {
         calculatedLoad: Math.round(rawLoad / increment) * increment,
+        loadUnit: request.profile.units,
+        loadSource: { kind: 'strength-reference' as const, value: reference.value, unit: request.profile.units, percent: loadPercent, increment },
         loadProvenance: `${reference.label} ${reference.value} ${request.profile.units}; training max reference; ${loadPercent}%; rounded to ${increment}`,
       };
     })(),

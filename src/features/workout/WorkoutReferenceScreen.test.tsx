@@ -205,3 +205,15 @@ describe('Workout reference state', () => {
     expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
   });
 });
+
+it('keeps an invalid negative entry visible until corrected without enabling completion', async () => {
+  const screen = await render(<WorkoutReferenceScreen onClose={() => undefined} settingsStore={{ load: async () => ({ ...defaultSettings, units: 'lb' }), save: async () => undefined }} />);
+  const input = screen.getByLabelText('Carga de la serie 1');
+  for (const text of ['-', '-2', '-20']) await fireEvent.changeText(input, text);
+  expect(input.props.value).toBe('-20');
+  expect(screen.getByLabelText('Completar serie 1')).toBeDisabled();
+  expect(screen.getByText(/Tu carga guardada se conserva/)).toBeOnTheScreen();
+  await fireEvent.changeText(input, '100,');
+  expect(input.props.value).toBe('100,');
+  expect(screen.getByLabelText('Completar serie 1')).not.toBeDisabled();
+});

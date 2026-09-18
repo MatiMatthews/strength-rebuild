@@ -1,4 +1,5 @@
-import { recoverWorkoutLoads } from './load-recovery';
+import type { LoadEntry } from './load-entry';
+import { canonicalSet, recoverWorkoutLoads } from './load-recovery';
 import { correctionLoad, isRecordedSet, projectHistory, type SetCorrection } from './history-corrections';
 import { enforceRestrictions, mutationSafety, readRestrictions } from './persisted-safety';
 import { effectiveSession } from '../programs/legacy-repair';
@@ -12,7 +13,7 @@ import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput }
 import type { SetDeletion } from './set-deletion';
 
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
-export interface WorkoutSetDraft { loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
+export interface WorkoutSetDraft { loadEntry?: LoadEntry | undefined; loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
 type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['role'];
 type PrescribedExercise = TodayData['session']['exercises'][number];
 export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
@@ -183,7 +184,8 @@ export class WorkoutService {
     let exercises: WorkoutExerciseDraft[] = executableExercises(session).map(({ exercise, blockRole }) => ({
       exerciseId: exercise.exerciseId, originalExerciseId: exercise.exerciseId, ...(blockRole ? { blockRole } : {}), qualityStops: exercise.qualityStops, ...('loadProvenance' in exercise && exercise.loadProvenance ? { loadProvenance: exercise.loadProvenance } : {}), requirement: typeof exercise.requirement === 'string' ? exercise.requirement : (exercise.requirement as { kind: WorkoutExerciseDraft['requirement'] }).kind,
       sets: Array.from({ length: exercise.target.sets }, () => ({
-        load: String(('calculatedLoad' in exercise && exercise.calculatedLoad) || ('load' in exercise.target && exercise.target.load) || ''), reps: String(exercise.target.reps.min),
+        ...('loadUnit' in exercise && exercise.loadUnit ? { loadUnit: exercise.loadUnit } : {}),
+        load: String(exercise.calculatedLoad ?? ('load' in exercise.target ? exercise.target.load : '') ?? ''), reps: String(exercise.target.reps.min),
         rir: String(exercise.target.rir.min), technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING',
       })),
     }));
@@ -201,7 +203,13 @@ export class WorkoutService {
     return draft;
   }
 
+  private validateLoads(draft: WorkoutDraft): void {
+    for (const exercise of draft.exercises) for (const set of exercise.sets) canonicalSet(set);
+    for (const deletion of draft.setDeletions ?? []) canonicalSet(deletion.set);
+  }
+
   async save(draft: WorkoutDraft): Promise<void> {
+    this.validateLoads(draft);
     if (this.hasUnsafeCompletion(draft)) throw new Error('Una serie detenida no puede guardarse como completada');
     const timestamp = this.now();
     await this.db.withTransactionAsync(async () => {
@@ -216,7 +224,7 @@ export class WorkoutService {
              (id, schema_version, created_at, updated_at, workout_session_id, session_exercise_id, set_index, load, reps, rir, technique, pain, notes)
              VALUES (?, 1, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
             `${draft.id}-set-${exerciseIndex}-${setIndex}`, timestamp, timestamp, draft.id, setIndex + 1,
-            numeric(set.load), numeric(set.reps), numeric(set.rir), set.technique, set.pain, set.notes,
+            numeric(canonicalSet(set).load), numeric(set.reps), numeric(set.rir), set.technique, set.pain, set.notes,
           );
         }
       }
@@ -268,6 +276,7 @@ export class WorkoutService {
   private queuedSnapshot: { draft: WorkoutDraft; revision: number; lineage: Set<number>; saved: boolean } | undefined;
 
   private immediateSnapshot(draft: WorkoutDraft): boolean {
+    this.validateLoads(draft);
     if (this.asyncSnapshots || this.queuedSnapshot) return false;
     // A read projection must not rewrite the immutable legacy source merely
     // because the screen autosaves on mount or background.
@@ -416,12 +425,13 @@ export class WorkoutService {
           (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
           VALUES (?, 1, ?, ?, 'HISTORY_CORRECTION', 'history-correction-v2', ?, ?, 1, ?)`,
           `history-correction-${sequence}`, timestamp, timestamp,
-          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, load:String(load), loadUnit:'kg'}}),
+          JSON.stringify({...input, exerciseIndex, reason, sequence, before, after:{...before, loadEntry:undefined, load:String(load), loadUnit:'kg'}}),
           JSON.stringify({originalSnapshotPreserved:true, correctedLoad:load}), timestamp);
       });
     } finally { this.correctionBusy = false; }
   }
   async complete(draft: WorkoutDraft): Promise<WorkoutSummary> {
+    this.validateLoads(draft);
     if (this.hasUnsafeCompletion(draft)) throw new Error('La seguridad del entrenamiento impide completarlo');
     const hasCompletedSet = draft.exercises.some((exercise) => exercise.sets.some((set) => set.disposition === 'COMPLETED'));
     const hasLegacyRecordedWork = draft.exercises.some((exercise) => exercise.sets.some((set) => set.notes.trim()));
