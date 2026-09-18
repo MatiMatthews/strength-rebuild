@@ -1,3 +1,4 @@
+import { inspectWeeklyTargets, targetChanged, WEEKLY_TARGET_POLICY, type WeeklyTargets } from './weekly-targets';
 import type { RepositoryDatabase } from '../../data/repositories';
 
 export const WEEKLY_REVIEW_POLICY_VERSION = 'weekly-review-v1';
@@ -5,7 +6,7 @@ export type WeekOutcome = 'successful' | 'missed' | 'failed' | 'restricted' | 'r
 export type WeeklyAction = 'progress' | 'reduce' | 'repeat' | 'hold';
 export type WeeklyChoice = 'ACCEPTED' | 'KEPT' | 'REJECTED';
 export interface WeeklyReviewInput { cycleId: string; weekIndex: number; nextWeekIndex: number; outcome: WeekOutcome }
-export interface WeeklyProposal extends WeeklyReviewInput { id: string; action: WeeklyAction; explanation: string }
+export interface WeeklyProposal extends WeeklyReviewInput { id: string; action: WeeklyAction; explanation: string; targetPolicy?: string; targets?: WeeklyTargets }
 type ProposalRow = { id: string; cycle_id: string; inputs_json: string; output_json: string; decision: string | null };
 export interface PendingWeek { cycleId: string; weekIndex: number }
 const decisions: Record<WeekOutcome, Pick<WeeklyProposal, 'action' | 'explanation'>> = {
@@ -16,7 +17,7 @@ const decisions: Record<WeekOutcome, Pick<WeeklyProposal, 'action' | 'explanatio
   repeated: { action: 'repeat', explanation: 'Semana repetida. Registra una nueva revisión sin avance automático.' },
 };
 
-/** Weekly review records a decision; it never invents or silently applies load targets. */
+/** New proposals may explicitly authorize verified targets; historical proposals only close review. */
 export class WeeklyReviewService {
   private busy = false;
   constructor(private readonly db: RepositoryDatabase, private readonly now = () => new Date().toISOString(), private readonly createId = () => `weekly-${Date.now()}-${Math.random().toString(36).slice(2)}`) {}
@@ -52,7 +53,8 @@ export class WeeklyReviewService {
     if (input.cycleId !== row.cycle_id || !Number.isInteger(input.weekIndex) || input.weekIndex < 1
       || input.nextWeekIndex !== input.weekIndex + 1 || !Object.hasOwn(decisions, input.outcome)) throw new Error('La revisión guardada no tiene datos verificables.');
     // Historical output may contain suggested targets. They are not an authorized prescription.
-    return { ...input, id: row.id, ...decisions[input.outcome] };
+    const stored = JSON.parse(row.output_json) as WeeklyProposal;
+    return { ...input, id: row.id, ...decisions[input.outcome], ...(stored.targetPolicy === WEEKLY_TARGET_POLICY && input.outcome === 'successful' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: stored.targets} : {}) };
   }
 
   async propose(input: WeeklyReviewInput): Promise<WeeklyProposal> {
@@ -64,7 +66,7 @@ export class WeeklyReviewService {
         if (!(await this.isEligible(input.cycleId, input.weekIndex)) || input.nextWeekIndex !== input.weekIndex + 1 || !Object.hasOwn(decisions, input.outcome)) throw new Error('Esta semana no tiene una revisión pendiente. Vuelve a Hoy.');
         const existing = await this.load(input.cycleId, input.weekIndex);
         if (existing) { proposal = existing; return; }
-        proposal = { ...input, id: this.createId(), ...decisions[input.outcome] };
+        proposal = { ...input, id: this.createId(), ...decisions[input.outcome], ...(input.outcome === 'successful' ? {targetPolicy: WEEKLY_TARGET_POLICY, targets: await inspectWeeklyTargets(this.db,input.cycleId,input.weekIndex)} : {}) };
         const timestamp = this.now();
         await this.db.runAsync(`INSERT INTO progression_proposal (id, schema_version, created_at, updated_at, cycle_id, policy_version, inputs_json, output_json)
           VALUES (?, 1, ?, ?, ?, ?, ?, ?)`, proposal.id, timestamp, timestamp, input.cycleId, WEEKLY_REVIEW_POLICY_VERSION, JSON.stringify(input), JSON.stringify(proposal));
@@ -84,6 +86,12 @@ export class WeeklyReviewService {
         if (!row || row.decision) throw new Error('Esta revisión ya fue resuelta o no está disponible. Vuelve a Hoy.');
         const proposal = this.decode(row);
         if (!(await this.isEligible(proposal.cycleId, proposal.weekIndex))) throw new Error('La semana cambió. Vuelve a Hoy para revisar el estado actual.');
+        let applied: WeeklyTargets | null = null;
+        if(choice === 'ACCEPTED' && proposal.targetPolicy === WEEKLY_TARGET_POLICY) {
+          const current = await inspectWeeklyTargets(this.db,proposal.cycleId,proposal.weekIndex);
+          if(!proposal.targets || JSON.stringify(current) !== JSON.stringify(proposal.targets) || current.unavailable) throw new Error('La semana cambió o el ajuste no está disponible. Mantén o rechaza para conservar el plan.');
+          if(current.targets.some(targetChanged)) applied=current;
+        }
         const timestamp = this.now();
         const claimed = await this.db.runAsync('UPDATE progression_proposal SET decision = ?, decided_at = ?, updated_at = ? WHERE id = ? AND decision IS NULL', choice, timestamp, timestamp, id);
         if (claimed.changes !== 1) throw new Error('Esta revisión ya fue resuelta.');
@@ -97,9 +105,10 @@ export class WeeklyReviewService {
           await this.db.runAsync("UPDATE progression_proposal SET decision = 'REJECTED', decided_at = ?, updated_at = ? WHERE id = ? AND decision IS NULL", timestamp, timestamp, duplicate.id);
           superseded.push(duplicate.id);
         }
+        if(applied) await this.db.runAsync(`INSERT INTO decision_log (id,schema_version,created_at,updated_at,decision_type,policy_version,inputs_json,output_json,accepted,decided_at) VALUES (?,1,?,?,'WEEKLY_TARGETS',?,?,?,1,?)`, `weekly-targets:${id}`,timestamp,timestamp,WEEKLY_TARGET_POLICY,JSON.stringify({proposalId:id,cycleId:proposal.cycleId,weekIndex:proposal.weekIndex}),JSON.stringify(applied),timestamp);
         await this.db.runAsync(`INSERT INTO decision_log (id, schema_version, created_at, updated_at, decision_type, policy_version, inputs_json, output_json, accepted, decided_at)
           VALUES (?, 1, ?, ?, 'WEEKLY_PROGRESSION', ?, ?, ?, ?, ?)`, `decision-${id}`, timestamp, timestamp, WEEKLY_REVIEW_POLICY_VERSION,
-          JSON.stringify({ proposal, originalInputs: row.inputs_json, originalOutput: row.output_json }), JSON.stringify({ choice, action: proposal.action, prescriptionsChanged: false, superseded }), choice === 'ACCEPTED' ? 1 : 0, timestamp);
+          JSON.stringify({ proposal, originalInputs: row.inputs_json, originalOutput: row.output_json }), JSON.stringify({ choice, action: proposal.action, prescriptionsChanged: Boolean(applied), superseded }), choice === 'ACCEPTED' ? 1 : 0, timestamp);
       });
     } finally { this.busy = false; }
   }

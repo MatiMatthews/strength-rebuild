@@ -1,3 +1,4 @@
+import { targetChanged } from '../../application/progression/weekly-targets';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { WeekOutcome, WeeklyChoice, WeeklyProposal, WeeklyReviewService } from '../../application/progression/weekly-review';
@@ -39,12 +40,12 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     if (!proposal) return;
     await reviews.decide(proposal.id, choice);
     setResolved(true); setProposal(null);
-    setMessage('Revisión guardada. Cargas y repeticiones sin cambios. La preparación de seguridad sigue vigente.');
+    setMessage(choice === 'ACCEPTED' && proposal.targets?.targets.some(targetChanged) ? 'Revisión guardada. Objetivos aplicados a la próxima semana. La preparación de seguridad sigue vigente.' : 'Revisión guardada. Cargas y repeticiones sin cambios. La preparación de seguridad sigue vigente.');
     onChanged?.();
   });
   return <Panel>
     <AppText accessibilityRole="header" aria-level={2} variant="heading">Revisión de semana {nextWeekIndex - 1}</AppText>
-    <AppText color="muted">La semana terminó. Confirma su resultado para continuar. Esta revisión registra tu decisión; no cambia cargas, repeticiones ni restricciones.</AppText>
+    <AppText color="muted">La semana terminó. Confirma su resultado para continuar. Revisa los objetivos antes de aceptar. Las restricciones de seguridad siguen vigentes.</AppText>
     {!ready ? <><AppText>{message ? 'Revisión no disponible' : 'Cargando revisión…'}</AppText>{message ? <ActionButton onPress={() => setRetry(value => value + 1)}>Reintentar revisión</ActionButton> : null}</> : null}
     {ready && !resolved && !proposal ? <>
       <View accessibilityLabel="Resultado de la semana" accessibilityRole="radiogroup" style={styles.options}>
@@ -55,9 +56,16 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
     {ready && proposal ? <View style={styles.proposal}>
       <Tag>{outcomes.find(item => item.value === proposal.outcome)?.label ?? 'Resultado guardado'}</Tag>
       <AppText>{proposal.explanation}</AppText>
-      <AppText color="muted">Aceptar registra este resultado. Mantener o rechazar cierra la revisión conservando el plan. Ninguna opción aplica nuevos objetivos de entrenamiento.</AppText>
+      <AppText color="muted">{proposal.targets ? 'Aceptar aplica únicamente los ajustes verificados de la próxima semana. Mantener o rechazar conserva el plan.' : 'Este resultado cierra la revisión sin ajustar cargas ni repeticiones. Mantener o rechazar también conserva el plan.'}</AppText>
+      {proposal.targets?.unavailable ? <AppText>{proposal.targets.unavailable}</AppText> : null}
+      {proposal.targets && !proposal.targets.targets.length ? <AppText>Última semana: no hay otra semana que ajustar. Esta revisión no activa un ciclo nuevo.</AppText> : null}
+      {proposal.targets?.targets.map((t,index)=><View key={index} style={styles.proposal}>
+        <AppText variant="bodyStrong">Día {t.day} · {t.name}</AppText>
+        <AppText>{t.before.target.sets} × {t.before.target.reps.min} → {t.after.target.sets} × {t.after.target.reps.min} repeticiones · {t.before.calculatedLoad === undefined ? 'Carga desconocida' : `${t.before.calculatedLoad} → ${t.after.calculatedLoad} ${t.before.loadProvenance?.includes(' lb;') ? 'lb' : 'kg'}`}</AppText>
+        <AppText color="muted">{t.reason}</AppText>
+      </View>)}
       <View style={styles.actions}>
-        <ActionButton accessibilityLabel="Aceptar propuesta semanal" disabled={busy} onPress={() => decide('ACCEPTED')}>{busy ? 'Guardando…' : 'Aceptar resultado'}</ActionButton>
+        <ActionButton accessibilityLabel="Aceptar propuesta semanal" disabled={busy || Boolean(proposal.targets?.unavailable)} onPress={() => decide('ACCEPTED')}>{busy ? 'Guardando…' : 'Aceptar resultado'}</ActionButton>
         <ActionButton accessibilityLabel="Mantener plan semanal" disabled={busy} onPress={() => decide('KEPT')} tone="secondary">Mantener plan</ActionButton>
         <ActionButton accessibilityLabel="Rechazar propuesta semanal" disabled={busy} onPress={() => decide('REJECTED')} tone="secondary">Rechazar resultado</ActionButton>
       </View>
