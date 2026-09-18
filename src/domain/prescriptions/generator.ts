@@ -11,10 +11,10 @@ export interface CyclePrescriptionRequest {
   readonly weeks: number;
   readonly profile?: {
     readonly units: 'kg' | 'lb';
-    readonly benchPressReference: number;
-    readonly deadliftReference: number;
-    readonly backSquatReference: number;
-    readonly strictPullUpCapacity: number;
+    readonly benchPressReference?: number;
+    readonly deadliftReference?: number;
+    readonly backSquatReference?: number;
+    readonly strictPullUpCapacity?: number;
     readonly availableIncrement: number;
   };
   readonly equipment?: readonly string[];
@@ -149,7 +149,7 @@ export function prescribeCatalogExercise(
     qualityStops: [...qualityStops(request.type)],
     ...(() => {
       const loadRange = target.loadPercent;
-      if (!reference || !request.profile || !loadRange) return { loadProvenance: 'policy-target' };
+      if (!reference || reference.value === undefined || !Number.isFinite(reference.value) || reference.value <= 0 || !request.profile || !Number.isFinite(request.profile.availableIncrement) || request.profile.availableIncrement <= 0 || !loadRange) return { loadProvenance: 'policy-target' };
       const loadPercent = (loadRange.min + loadRange.max) / 2;
       const rawLoad = reference.value * loadPercent / 100;
       const increment = request.profile.availableIncrement;

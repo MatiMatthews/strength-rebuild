@@ -20,6 +20,10 @@ export function createSettingsStore(repository: SettingRepository): SettingsStor
         if (baseline && JSON.stringify(current[key]) !== JSON.stringify(baseline[key]) && JSON.stringify(current[key]) !== JSON.stringify(edited[key])) throw new SettingsConflictError();
         Object.assign(next, { [key]: edited[key] });
       }
+      // Pin legacy reference units before a display-unit edit, without changing values.
+      if (current.profile && !current.profileUnit && !next.profileUnit) next.profileUnit = current.units;
+      if (baseline && JSON.stringify(edited.profile) !== JSON.stringify(baseline.profile)
+        && (current.profileUnit ?? current.units) !== (baseline.profileUnit ?? baseline.units)) throw new SettingsConflictError();
       const validation = validateSettings(next);
       if (!validation.success) throw new Error(validation.message);
       if (!await repository.compareAndSave({ id: 'training-settings', key: 'training-settings', value: next }, stored)) throw new SettingsConflictError();

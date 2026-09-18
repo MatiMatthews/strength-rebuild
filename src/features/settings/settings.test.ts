@@ -1,5 +1,5 @@
 import { generatePrescription } from '../../domain/prescriptions/generator';
-import { defaultSettings, resolveTrainingSettings, SAFE_DEMO_PROFILE_ID, validateSettings } from './settings';
+import { defaultSettings, resolveTrainingSettings, validateSettings } from './settings';
 
 describe('local training settings', () => {
   it('accepts units, increments, equipment, schedule, requirements and restrictions', () => {
@@ -7,19 +7,20 @@ describe('local training settings', () => {
     expect(defaultSettings.requirements.map(({ kind }) => kind)).toEqual(['EXACT', 'PATTERN', 'CAPABILITY']);
   });
 
-  it('uses a deterministic explicitly synthetic profile for fresh installs', () => {
+  it('starts personal with unknown references and no implicit demo consent', () => {
     const first = resolveTrainingSettings(null);
-    const second = resolveTrainingSettings(undefined);
+    expect(first).toEqual(resolveTrainingSettings(undefined));
+    expect(first.demoProfileId).toBeUndefined();
+    expect(first.profile).toEqual({});
+  });
 
-    expect(first).toEqual(second);
-    expect(first.demoProfileId).toBe(SAFE_DEMO_PROFILE_ID);
-    expect(first.demoProfileId).toMatch(/synthetic/i);
-    expect(first.profile).toEqual({
-      benchPressReference: 60,
-      deadliftReference: 100,
-      backSquatReference: 80,
-      strictPullUpCapacity: 5,
-    });
+  it('generates a partial profile without invented or nonfinite loads', () => {
+    const snapshot = generatePrescription({ id: 'partial', type: 'strength', weeks: 1,
+      profile: { units: 'kg', availableIncrement: 1.25, benchPressReference: 60 } });
+    const exercises = snapshot.weeks.flatMap(w => w.sessions.flatMap(s => s.exercises));
+    expect(exercises.find(e => e.exerciseId === 'barbell-bench-press')?.calculatedLoad).toBe(47.5);
+    expect(exercises.find(e => e.exerciseId === 'smith-box-squat')?.calculatedLoad).toBeUndefined();
+    expect(exercises.every(e => e.calculatedLoad === undefined || Number.isFinite(e.calculatedLoad))).toBe(true);
   });
 
   it('returns persisted V2.2 settings byte-for-byte without overlaying fresh-install defaults', () => {
@@ -73,4 +74,10 @@ it.each([
   const before = JSON.stringify(settings);
   expect(validateSettings(settings as typeof defaultSettings)).toMatchObject({ success: false });
   expect(JSON.stringify(settings)).toBe(before);
+});
+
+it('never converts legacy markers into demo consent or changes persisted references on repeated resolution', () => {
+  const legacy = { ...defaultSettings, demoProfileId: 'synthetic-strength-demo-v1', profile: { benchPressReference: 60, backSquatReference: 80, deadliftReference: 100, strictPullUpCapacity: 5 } };
+  const before = JSON.stringify(legacy);
+  for (let i = 0; i < 3; i++) expect(JSON.stringify(resolveTrainingSettings(legacy))).toBe(before);
 });
