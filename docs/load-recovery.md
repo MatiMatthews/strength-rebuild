@@ -1,8 +1,8 @@
 # Existing workout load units
 
-History, corrections, analytics and resumed workouts use kilograms until the
-preference-aware input/display flow is available. Changing current settings does
-not reinterpret stored numbers.
+History and workout inputs use the saved kg/lb preference at the display and
+entry boundary. Canonical history, corrections and analytics use kilograms;
+changing settings never reinterprets stored numbers.
 
 The read projection applies this precedence:
 
@@ -26,8 +26,13 @@ persists the current active draft with its explicit canonical unit.
 Correction events are applied in their existing deterministic order after source
 projection. Existing unitless correction values retain kg semantics (the legacy
 editor's contract); explicitly typed correction values are converted on read.
-New corrections record kg explicitly. Original history and event bytes remain
-unchanged. Deleted-set undo uses the same projection as the resumed workout.
+New corrections record canonical kg plus the entered value and unit in
+`after.loadEntry`. History rows, original/before/after audit and volume/e1RM
+labels convert from canonical values to the selected display unit. The editor
+keeps its opened unit and canonical expected value for stale-write protection.
+Submitting an unchanged displayed load does not write rounded display values
+back into history or create another event. Original history and earlier event
+bytes remain unchanged. Deleted-set undo uses the same projection as the resumed workout.
 
 The encrypted restore validation boundary is separate from this local read
 projection. A read error never deletes or repairs the original database.
