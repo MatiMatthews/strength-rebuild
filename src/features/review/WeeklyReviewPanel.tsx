@@ -2,7 +2,7 @@ import { targetChanged } from '../../application/progression/weekly-targets';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { WeekOutcome, WeeklyChoice, WeeklyProposal, WeeklyReviewService } from '../../application/progression/weekly-review';
-import { ActionButton, AppText, Panel, Tag } from '../../design-system/v2.2/primitives';
+import { ActionButton, AppText, Panel } from '../../design-system/v2.2/primitives';
 import { palette, radii, spacing } from '../../design-system/v2.2/tokens';
 import { useAppTheme } from '../../design-system/use-app-theme';
 const outcomes: readonly { value: WeekOutcome; label: string }[] = [
@@ -54,7 +54,7 @@ export function WeeklyReviewPanel({ cycleId, nextWeekIndex, reviews, onChanged }
       <ActionButton accessibilityLabel="Crear propuesta semanal" disabled={busy} onPress={() => run(async () => { const value = await reviews.propose({ cycleId, weekIndex: nextWeekIndex - 1, nextWeekIndex, outcome }); setProposal(value); setOutcome(value.outcome); })}>{busy ? 'Guardando…' : 'Revisar resultado'}</ActionButton>
     </> : null}
     {ready && proposal ? <View style={styles.proposal}>
-      <Tag>{outcomes.find(item => item.value === proposal.outcome)?.label ?? 'Resultado guardado'}</Tag>
+      <AppText variant="bodyStrong">Resultado: {outcomes.find(item => item.value === proposal.outcome)?.label ?? 'Guardado'}</AppText>
       <AppText>{proposal.explanation}</AppText>
       <AppText color="muted">{proposal.targets ? 'Aceptar aplica únicamente los ajustes verificados de la próxima semana. Mantener o rechazar conserva el plan.' : 'Este resultado cierra la revisión sin ajustar cargas ni repeticiones. Mantener o rechazar también conserva el plan.'}</AppText>
       {proposal.targets?.unavailable ? <AppText>{proposal.targets.unavailable}</AppText> : null}
