@@ -14,6 +14,12 @@ import {
 } from './brand-primitives';
 
 describe('V2.2 structural brand primitives', () => {
+  it('keeps the logo inside its fixed symbol box without capping reading text', async () => {
+    const screen = await render(<AppMasthead title="Configuración" context="Preferencias locales" />);
+    expect(screen.getByText('SR').props.allowFontScaling).toBe(false);
+    expect(screen.getByText('Configuración').props.allowFontScaling).not.toBe(false);
+    expect(screen.getByText('Preferencias locales').props.allowFontScaling).not.toBe(false);
+  });
   it('uses compact, fixed-size typography for long operational titles', async () => {
     const screen = await render(<><AppMasthead title="HOY" /><AppMasthead title="ENTRENAMIENTO" context="GUARDADO AUTOMATICO" /></>);
 

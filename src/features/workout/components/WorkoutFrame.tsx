@@ -19,7 +19,7 @@ export function WorkoutFrame({ busy = false, children, commands, current, exerci
     <View style={[styles.header, { borderBottomColor: theme.text }]} testID="workout-exercise-header">
       <AppText color="muted" variant="caption">Ejercicio {current} de {total}</AppText>
       <Pressable disabled={busy} accessibilityState={{ disabled: busy }} accessibilityHint="Abre las instrucciones locales sin salir del entrenamiento" accessibilityLabel={`Ver instrucciones y guía del ejercicio ${exerciseName}`} accessibilityRole="button" onPress={onShowGuidance} style={styles.guideButton}>
-        <AppText accessibilityRole="header" aria-level={1} variant="title">{exerciseName}</AppText>
+        <AppText accessibilityRole="header" aria-level={2} variant="title">{exerciseName}</AppText>
       </Pressable>
       <AppText accessibilityLabel={nextName ? `Siguiente: ${nextName}` : 'Último ejercicio'} color="muted" variant="caption">{nextName ? `SIGUE · ${nextName}` : 'ÚLTIMO EJERCICIO'}</AppText>
     </View>

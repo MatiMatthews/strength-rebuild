@@ -11,7 +11,7 @@ import { ActionButton, AppSheet, IconButton, ScreenContentInset, TextField } fro
 const contentWidth = 800;
 
 export function BrandMark() {
-  return <View accessibilityLabel="Strength Rebuild" style={styles.mark}><Text style={styles.markText}>SR</Text></View>;
+  return <View accessibilityLabel="Strength Rebuild" style={styles.mark}><Text allowFontScaling={false} testID="brand-mark-glyph" style={styles.markText}>SR</Text></View>;
 }
 
 export function CutCornerSurface({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {

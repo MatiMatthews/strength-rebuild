@@ -26,7 +26,7 @@ export default function SettingsRoute() {
 
   return <Screen testID="settings-screen">
     <AppMasthead context="Preferencias locales y sin conexión" title="Configuración" />
-    <View accessibilityRole="header" aria-level={1} ref={headingRef} tabIndex={-1}>
+    <View accessibilityRole="header" aria-level={2} ref={headingRef} tabIndex={-1}>
       <AppText variant="heading">Preferencias de entrenamiento</AppText>
     </View>
     <AppText color="muted">Tus preferencias se guardan localmente y siguen disponibles sin conexión.</AppText>
