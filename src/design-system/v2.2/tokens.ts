@@ -1,3 +1,9 @@
+import { Platform } from 'react-native';
+
+// Each bundled family is already a specific weight. Expo registers that face
+// in Android's NORMAL slot; requesting BOLD instead falls back to a system face.
+const faceWeight = (weight: '400' | '600' | '700' | '800') => Platform.OS === 'android' ? '400' as const : weight;
+
 export const palette = {
   signal: '#E7FF00',
   ink: '#090B0C',
@@ -27,16 +33,17 @@ export const borders = { standard: 1, emphasis: 2, active: 4 } as const;
 export const radii = { structural: 0, control: 4, tool: 8 } as const;
 
 export const typography = {
-  hero: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 72, lineHeight: 72, fontWeight: '800' as const, letterSpacing: 0 },
-  display: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 44, lineHeight: 46, fontWeight: '800' as const, letterSpacing: 0 },
-  sequence: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 40, lineHeight: 40, fontWeight: '800' as const, letterSpacing: 0 },
-  title: { fontFamily: 'BarlowCondensed-Bold', fontSize: 28, lineHeight: 32, fontWeight: '700' as const, letterSpacing: 0 },
-  heading: { fontFamily: 'Barlow-Bold', fontSize: 20, lineHeight: 24, fontWeight: '700' as const, letterSpacing: 0 },
-  body: { fontFamily: 'Barlow-Regular', fontSize: 16, lineHeight: 22, fontWeight: '400' as const, letterSpacing: 0 },
-  bodyStrong: { fontFamily: 'Barlow-Bold', fontSize: 16, lineHeight: 22, fontWeight: '700' as const, letterSpacing: 0 },
-  label: { fontFamily: 'Barlow-SemiBold', fontSize: 14, lineHeight: 18, fontWeight: '600' as const, letterSpacing: 0 },
-  caption: { fontFamily: 'Barlow-SemiBold', fontSize: 13, lineHeight: 17, fontWeight: '600' as const, letterSpacing: 0 },
-  numeric: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 40, lineHeight: 40, fontWeight: '800' as const, letterSpacing: 0 },
+  hero: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 72, lineHeight: 72, fontWeight: faceWeight('800'), letterSpacing: 0 },
+  display: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 44, lineHeight: 46, fontWeight: faceWeight('800'), letterSpacing: 0 },
+  sequence: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 40, lineHeight: 40, fontWeight: faceWeight('800'), letterSpacing: 0 },
+  title: { fontFamily: 'BarlowCondensed-Bold', fontSize: 28, lineHeight: 32, fontWeight: faceWeight('700'), letterSpacing: 0 },
+  taskTitle: { fontFamily: 'BarlowCondensed-Bold', fontSize: 22, lineHeight: 26, fontWeight: faceWeight('700'), letterSpacing: 0 },
+  heading: { fontFamily: 'Barlow-Bold', fontSize: 20, lineHeight: 24, fontWeight: faceWeight('700'), letterSpacing: 0 },
+  body: { fontFamily: 'Barlow-Regular', fontSize: 16, lineHeight: 22, fontWeight: faceWeight('400'), letterSpacing: 0 },
+  bodyStrong: { fontFamily: 'Barlow-Bold', fontSize: 16, lineHeight: 22, fontWeight: faceWeight('700'), letterSpacing: 0 },
+  label: { fontFamily: 'Barlow-SemiBold', fontSize: 14, lineHeight: 18, fontWeight: faceWeight('600'), letterSpacing: 0 },
+  caption: { fontFamily: 'Barlow-SemiBold', fontSize: 13, lineHeight: 17, fontWeight: faceWeight('600'), letterSpacing: 0 },
+  numeric: { fontFamily: 'BarlowCondensed-ExtraBold', fontSize: 40, lineHeight: 40, fontWeight: faceWeight('800'), letterSpacing: 0 },
 } as const;
 
 export const lightTheme = { accent: palette.ink, dark: false, dangerText: palette.danger, cautionText: palette.caution, successText: palette.success, canvas: palette.paper, surface: palette.surface, surfaceMuted: palette.paper, text: palette.ink, textMuted: palette.steel, border: palette.line, tabInactive: palette.steel, overlay: 'rgba(9, 11, 12, 0.58)' } as const;

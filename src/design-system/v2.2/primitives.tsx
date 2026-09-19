@@ -1,4 +1,5 @@
 import { X, type LucideIcon } from 'lucide-react-native';
+import { createContext } from 'react';
 import type { PropsWithChildren, ReactNode, RefObject } from 'react';
 import {
   Pressable,
@@ -45,7 +46,6 @@ export function AppText({
   return (
     <Text
       allowFontScaling
-      maxFontSizeMultiplier={1.4}
       style={[typography[variant] as TextStyle, { color: textColor }, style]}
       {...props}
     >
@@ -53,6 +53,8 @@ export function AppText({
     </Text>
   );
 }
+
+export const ScreenContentInset = createContext(0);
 
 type ScreenProps = PropsWithChildren<{
   footer?: ReactNode;
@@ -65,7 +67,7 @@ export function Screen({ children, footer, scroll = true, scrollRef, testID }: S
   const theme = useAppTheme();
   const content = (
     <View style={styles.content} testID={testID}>
-      {children}
+      <ScreenContentInset.Provider value={spacing.lg}>{children}</ScreenContentInset.Provider>
     </View>
   );
 
@@ -95,9 +97,10 @@ type IconButtonProps = {
   onPress: () => void;
   selected?: boolean;
   disabled?: boolean;
+  tone?: 'default' | 'command';
 };
 
-export function IconButton({ accessibilityLabel, disabled = false, icon: Icon, onPress, selected }: IconButtonProps) {
+export function IconButton({ accessibilityLabel, disabled = false, icon: Icon, onPress, selected, tone = 'default' }: IconButtonProps) {
   const theme = useAppTheme();
   return (
     <Pressable
@@ -110,14 +113,14 @@ export function IconButton({ accessibilityLabel, disabled = false, icon: Icon, o
       style={({ pressed }) => [
         styles.iconButton,
         {
-          backgroundColor: selected ? palette.strengthSoft : theme.surfaceMuted,
-          borderColor: selected ? palette.strength : theme.textMuted,
+          backgroundColor: selected ? palette.strengthSoft : tone === 'command' ? palette.ink : theme.surfaceMuted,
+          borderColor: selected ? palette.strength : tone === 'command' ? theme.text : theme.textMuted,
           opacity: 1,
           ...(pressed && !disabled ? { borderColor: theme.text, borderWidth: 2 } : {}),
         },
       ]}
     >
-      <Icon color={selected ? palette.strength : disabled ? theme.textMuted : theme.text} size={22} strokeWidth={2.2} />
+      <Icon color={selected ? palette.strength : disabled ? theme.textMuted : tone === 'command' ? palette.paper : theme.text} size={22} strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -129,7 +132,7 @@ type ActionButtonProps = PropsWithChildren<{
   icon?: LucideIcon;
   onPress: () => void;
   onPressIn?: () => void;
-  tone?: 'primary' | 'secondary' | 'danger';
+  tone?: 'primary' | 'secondary' | 'danger' | 'command';
   busy?: boolean;
   disabled?: boolean;
 }>;
@@ -149,9 +152,9 @@ export function ActionButton({
   const theme = useAppTheme();
   disabled = disabled || busy;
   const backgroundColor =
-    disabled ? theme.surfaceMuted : tone === 'primary' ? palette.strength : tone === 'danger' ? palette.stopSoft : theme.surface;
-  const borderColor = disabled ? theme.textMuted : tone === 'primary' ? theme.text : tone === 'danger' ? theme.dangerText : theme.textMuted;
-  const textColor = disabled ? theme.textMuted : tone === 'primary' ? palette.white : tone === 'danger' ? palette.stop : theme.text;
+    disabled ? theme.surfaceMuted : (tone === 'primary' || tone === 'command') ? palette.strength : tone === 'danger' ? palette.stopSoft : theme.surface;
+  const borderColor = disabled ? theme.textMuted : (tone === 'primary' || tone === 'command') ? theme.text : tone === 'danger' ? theme.dangerText : theme.textMuted;
+  const textColor = disabled ? theme.textMuted : tone === 'command' ? palette.paper : tone === 'primary' ? palette.white : tone === 'danger' ? palette.stop : theme.text;
 
   return (
     <Pressable
@@ -168,7 +171,7 @@ export function ActionButton({
       ]}
     >
       {Icon ? <Icon color={textColor} size={20} strokeWidth={2.3} /> : null}
-      <AppText style={{ color: textColor }} variant="bodyStrong">
+      <AppText style={{ color: textColor, flexShrink: 1, textAlign: 'center' }} variant="bodyStrong">
         {children}
       </AppText>
     </Pressable>
@@ -238,25 +241,30 @@ export function Divider() {
 type TextFieldProps = TextInputProps & {
   error?: string;
   label: string;
+  unit?: string;
+  presentation?: 'standard' | 'training';
 };
 
-export function TextField({ error, label, style, editable = true, ...props }: TextFieldProps) {
+export function TextField({ error, label, style, editable = true, unit, presentation = 'standard', ...props }: TextFieldProps) {
   const theme = useAppTheme();
   return (
     <View style={styles.fieldGroup}>
       <AppText variant="label">{label}</AppText>
+      <View style={presentation === 'training' ? [styles.fieldInstrument, { backgroundColor: editable ? theme.surface : theme.surfaceMuted, borderColor: error ? theme.dangerText : theme.textMuted }] : undefined}>
       <TextInput
         accessibilityLabel={label}
         allowFontScaling
         placeholderTextColor={theme.textMuted}
         editable={editable}
         style={[
-          styles.textField,
+          presentation === 'training' ? styles.fieldInput : styles.textField,
           { backgroundColor: editable ? theme.surface : theme.surfaceMuted, borderColor: error ? theme.dangerText : theme.textMuted, color: editable ? theme.text : theme.textMuted },
           style,
         ]}
         {...props}
       />
+      {unit ? <AppText color="muted" variant="label">{unit}</AppText> : null}
+      </View>
       {error ? <AppText accessibilityRole="alert" color="danger" variant="caption">{error}</AppText> : null}
     </View>
   );
@@ -292,9 +300,10 @@ type AppSheetProps = PropsWithChildren<{
   onDismiss: () => void;
   title: string;
   visible: boolean;
+  closeLabel?: string;
 }>;
 
-export function AppSheet({ children, onDismiss, title, visible }: AppSheetProps) {
+export function AppSheet({ children, onDismiss, title, visible, closeLabel }: AppSheetProps) {
   const theme = useAppTheme();
   const { reducedMotion } = useMotionPolicy();
   return (
@@ -308,17 +317,28 @@ export function AppSheet({ children, onDismiss, title, visible }: AppSheetProps)
           style={[styles.sheet, { backgroundColor: theme.surface }]}
         >
           <View style={styles.sheetHeader}>
-            <AppText variant="heading">{title}</AppText>
-            <IconButton accessibilityLabel={`Cerrar ${title}`} icon={X} onPress={onDismiss} />
+            <AppText accessibilityRole="header" style={{ flex: 1, minWidth: 0 }} variant="heading">{title}</AppText>
+            {closeLabel ? <ActionButton tone="command" onPress={onDismiss}>{closeLabel}</ActionButton> : <IconButton accessibilityLabel={`Cerrar ${title}`} icon={X} onPress={onDismiss} />}
           </View>
-          {children}
+          <ScrollView keyboardShouldPersistTaps="handled">{children}</ScrollView>
         </View>
       </View>
     </Modal>
   );
 }
 
+export function ChoiceControl({ accessibilityLabel, label, onPress, selected, busy = false, disabled = false }: { accessibilityLabel?: string; label: string; onPress: () => void; selected: boolean; busy?: boolean; disabled?: boolean }) {
+  const theme = useAppTheme();
+  const unavailable = disabled || busy;
+  const backgroundColor = selected ? palette.signal : unavailable ? theme.surfaceMuted : theme.surface;
+  const foreground = selected ? palette.ink : unavailable ? theme.textMuted : theme.text;
+  return <Pressable accessibilityLabel={accessibilityLabel ?? label} accessibilityRole="radio" accessibilityState={{ checked: selected, busy, disabled: unavailable }} aria-checked={selected} aria-busy={busy} disabled={unavailable} onPress={onPress} style={({ pressed }) => [styles.choice, { backgroundColor, borderColor: selected ? palette.ink : theme.textMuted, borderWidth: pressed && !unavailable ? 2 : 1 }]}><View style={[styles.choiceMark, { borderColor: foreground, backgroundColor: selected ? foreground : backgroundColor }]} /><Text style={[styles.label, { color: foreground, flexShrink: 1 }]}>{label}</Text></Pressable>;
+}
+
 const styles = StyleSheet.create({
+  choice: { alignItems: 'center', flexDirection: 'row', gap: spacing.md, minHeight: 56, padding: spacing.md },
+  choiceMark: { borderWidth: 2, height: 20, width: 20, flexShrink: 0 },
+  label: { ...typography.label },
   actionButton: {
     alignItems: 'center',
     borderRadius: radii.control,
@@ -327,12 +347,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: 'center',
     minHeight: 52,
+    paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
   },
   content: {
     alignSelf: 'center',
     gap: spacing.xxl,
-    maxWidth: 520,
+    maxWidth: 800,
     paddingBottom: spacing.xxxl,
     paddingHorizontal: spacing.lg,
     width: '100%',
@@ -357,6 +378,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.control,
     borderWidth: 1,
     height: 48,
+    flexShrink: 0,
     justifyContent: 'center',
     width: 48,
   },
@@ -390,6 +412,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   sheetHeader: {
+    gap: spacing.md,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -412,7 +435,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
   },
+  fieldInstrument: { alignItems: 'center', borderWidth: 1, flexDirection: 'row', minHeight: 48, paddingHorizontal: spacing.md },
+  fieldInput: { ...typography.body, flex: 1, minWidth: 0, minHeight: 48 },
   textField: {
+    fontFamily: typography.body.fontFamily,
     borderRadius: radii.control,
     borderWidth: 1,
     fontSize: 16,
