@@ -2,8 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import * as appTheme from '@/design-system/use-app-theme';
-import { darkTheme, lightTheme } from '@/design-system/tokens';
-import { palette } from '@/design-system/v2.2/tokens';
+import { darkTheme, lightTheme, palette } from '@/design-system/v2.2/tokens';
 
 import { generateCycleSequence, InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 

@@ -5,6 +5,11 @@ import { spawnSync } from 'node:child_process';
 import * as canonical from './components';
 
 describe('V2.2 design-system boundary', () => {
+  it('keeps every production route and feature on the canonical imports', () => {
+    const root = resolve(__dirname, '../../..');
+    const result = spawnSync(process.execPath, [resolve(root, 'scripts/verify-v2.2-design-boundary.mjs'), root], { encoding: 'utf8' });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+  });
   it('exposes the complete canonical component boundary', () => {
     expect(Object.keys(canonical)).toEqual(expect.arrayContaining([
       'AppMasthead', 'PhaseBand', 'SegmentedRail', 'RuledHeader',
