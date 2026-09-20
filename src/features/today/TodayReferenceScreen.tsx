@@ -1,4 +1,5 @@
 import { ArrowRight, Settings, ShieldAlert } from "lucide-react-native";
+import { prescriptionQuantity } from '@/domain/prescriptions/measurement';
 import { useState, type ReactNode, type ComponentType } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
@@ -228,7 +229,7 @@ export function TodayReferenceScreen({
                 key={`${exercise.exerciseId}-${index}`}
                 ordinal={index + 1}
                 name={exerciseLabel(exercise.exerciseId)}
-                detail={`${exercise.target.sets} series · ${exercise.target.reps.min}–${exercise.target.reps.max} repeticiones`}
+                detail={prescriptionQuantity(exercise)}
                 actionLabel={`Abrir ejercicio ${index + 1}: ${exerciseLabel(exercise.exerciseId)}`}
                 icon={ArrowRight}
                 onPress={enterWorkout}

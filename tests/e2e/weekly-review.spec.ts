@@ -1,6 +1,6 @@
 import { fieldContrast } from './field-contrast';
 import { navigationContrast } from './navigation-contrast';
-import { isLastWorkoutExercise } from './setup';
+import { isLastWorkoutExercise, fillSetQuantity } from './setup';
 import { inspectContent } from './content-contrast';
 import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
@@ -57,8 +57,7 @@ for (const [choice, label] of [['ACCEPTED', 'Aceptar propuesta semanal'], ['KEPT
   for (let e = 0; e < 40; e++) {
     const count = await app.getByTestId('set-entry-row').count(); expect(count).toBeGreaterThan(0);
     for (let s = 1; s <= count; s++) {
-      await app.getByLabel(`Carga de la serie ${s}`, { exact: true }).fill('0');
-      await app.getByLabel(`Repeticiones de la serie ${s}`, { exact: true }).fill('8');
+      await fillSetQuantity(app, s);
       await app.getByRole('button', { name: `Completar serie ${s}`, exact: true }).click();
     }
     const next = app.getByRole('button', { name: 'Siguiente ejercicio', exact: true });

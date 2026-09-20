@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
-import { startSyntheticWorkout, isLastWorkoutExercise } from './setup';
+import { startSyntheticWorkout, isLastWorkoutExercise, openBenchPress } from './setup';
 import { readPersistence } from './persistence';
 
 async function units(page:Page,unit:'kg'|'lb') {
@@ -12,6 +12,7 @@ async function units(page:Page,unit:'kg'|'lb') {
 test('records pounds and kilograms without reinterpreting drafts, history or encrypted backups',async({page,context},info)=>{
  test.setTimeout(180_000);
  await startSyntheticWorkout(page);
+ await openBenchPress(page);
  const load=()=>page.getByLabel('Carga de la serie 1',{exact:true});
  await load().fill('45,359237');
  await page.getByRole('button',{name:'Completar serie 1',exact:true}).click();
@@ -29,6 +30,10 @@ test('records pounds and kilograms without reinterpreting drafts, history or enc
   await expect(page.getByLabel('Carga de la serie 2',{exact:true})).toHaveValue(unit==='kg'?'45.359237':'100');
  }
  // Complete the real session through production controls.
+ await page.getByRole('button',{name:'Ejercicio anterior',exact:true}).click();
+ await expect(page.getByTestId('workout-sequence-rail')).toHaveAttribute('aria-valuenow','2');
+ await page.getByRole('button',{name:'Ejercicio anterior',exact:true}).click();
+ await expect(page.getByTestId('workout-sequence-rail')).toHaveAttribute('aria-valuenow','1');
  for(let exercise=0;exercise<15;exercise++){
   const completes=page.getByRole('button',{name:/^Completar serie \d+$/});
   for(let set=0;set<await completes.count();set++)await completes.nth(set).click();
@@ -44,8 +49,9 @@ test('records pounds and kilograms without reinterpreting drafts, history or enc
  await readPersistence(page,info);let db=new DatabaseSync(info.outputPath('canonical.sqlite'));
  const row=db.prepare("SELECT actual_snapshot_json FROM workout_session WHERE status='COMPLETED'").get()!;
  const actual=JSON.parse(String(row.actual_snapshot_json));
- expect(actual.exercises[0].sets[0]).toMatchObject({load:'45.359237',loadUnit:'kg',loadEntry:{value:'45,359237',unit:'kg'}});
- expect(actual.exercises[0].sets[1]).toMatchObject({load:'45.359237',loadUnit:'kg',loadEntry:{value:'100',unit:'lb'}});db.close();
+ expect(actual.exercises[2].exerciseId).toBe('barbell-bench-press');
+ expect(actual.exercises[2].sets[0]).toMatchObject({load:'45.359237',loadUnit:'kg',loadEntry:{value:'45,359237',unit:'kg'}});
+ expect(actual.exercises[2].sets[1]).toMatchObject({load:'45.359237',loadUnit:'kg',loadEntry:{value:'100',unit:'lb'}});db.close();
  await page.goto('/backup');await page.getByLabel('Contraseña portátil del respaldo',{exact:true}).fill('synthetic-units-roundtrip');
  await page.getByRole('button',{name:'Exportar respaldo cifrado',exact:true}).click();
  await expect(page.getByText('Respaldo cifrado y autenticado listo para guardar.',{exact:true})).toBeVisible();

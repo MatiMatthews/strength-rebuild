@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, openSetNotes } from './setup';
 import { readPersistence } from './persistence';
 
 test('a later saved stop preserves completed work and blocks navigation and cold workout resume', async ({page,context},info) => {
   await startSyntheticWorkout(page);
-  await page.getByLabel('Notas de la serie 1',{exact:true}).fill('Preserve completed work');
+  await (await openSetNotes(page, 1)).fill('Preserve completed work');
   await page.getByRole('button',{name:'Completar serie 1',exact:true}).click();
   await expect.poll(async()=>JSON.parse(String((await readPersistence(page,info)).workouts[0]!.actual_snapshot_json)).exercises[0].sets[0].completed).toBe(true);
   await page.goto('/');

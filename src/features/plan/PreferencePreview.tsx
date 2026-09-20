@@ -7,6 +7,7 @@ import { ActionButton, AppText } from '@/design-system/v2.2/primitives';
 import { spacing } from '@/design-system/v2.2/tokens';
 import { useAppTheme } from '@/design-system/use-app-theme';
 import type { CyclePrescriptionSnapshot } from '@/domain/prescriptions/generator';
+import { prescriptionQuantity } from '@/domain/prescriptions/measurement';
 
 const days = { monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles', thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo' };
 
@@ -25,8 +26,8 @@ export function PreferencePreview({ preview, onClose }: { preview: CyclePrescrip
         </Pressable>
         {open ? session.exercises.map((exercise, index) => <View key={`${exercise.exerciseId}-${index}`} style={styles.exercise}>
           <AppText variant="bodyStrong">{exerciseCatalog.find(item => item.id === exercise.exerciseId)?.name ?? 'Ejercicio no disponible'}</AppText>
-          <AppText color="muted">{exercise.target.sets} series · {exercise.target.reps.min}-{exercise.target.reps.max} repeticiones</AppText>
-          <AppText color="muted">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadUnit ?? 'kg'}` : 'Carga por definir'}</AppText>
+          <AppText color="muted">{prescriptionQuantity(exercise)}</AppText>
+          {exercise.recording === 'load-reps' ? <AppText color="muted">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadUnit ?? 'kg'}` : 'Carga por definir'}</AppText> : null}
         </View>) : null}
       </View>;
     })}

@@ -14,7 +14,8 @@ it('waits for the latest edited draft before closing, prevents repeat navigation
   const workouts = { startOrResume: jest.fn().mockResolvedValue(draft), saveDraftSnapshot: save, saveDraftSnapshotBeforeProcessStop: () => true, canComplete: () => false } as unknown as WorkoutService;
   const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
   const screen = await render(<WorkoutReferenceScreen onClose={close} programs={programs} workouts={workouts} />);
-  await screen.findByLabelText('Notas de la serie 1');
+  await screen.findByLabelText('Mostrar notas de la serie 1');
+  await fireEvent.press(screen.getByLabelText('Mostrar notas de la serie 1'));
   await fireEvent.changeText(screen.getByLabelText('Notas de la serie 1'), 'Unsaved navigation draft');
   await fireEvent.press(screen.getByLabelText('Cerrar entrenamiento'));
   expect(close).not.toHaveBeenCalled();

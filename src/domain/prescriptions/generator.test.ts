@@ -23,7 +23,9 @@ describe('versioned cycle prescriptions', () => {
     });
     expect(prescription.weeks).toHaveLength(type === 'transition' ? 1 : 2);
     expect(prescription.weeks[0]!.sessions).toHaveLength(3);
-    expect(prescription.weeks[0]!.sessions[0]!.exercises[0]!.target).toEqual(expectedTarget);
+    const exercises = prescription.weeks[0]!.sessions[0]!.exercises;
+    expect(exercises.find(exercise => exercise.exerciseId === 'barbell-bench-press')!.target).toEqual(expectedTarget);
+    expect(exercises[0]).toMatchObject({ recording: 'seconds', target: { ...expectedTarget, seconds: 60 } });
   });
 
   it('inserts exactly one transition between different loading cycles', () => {

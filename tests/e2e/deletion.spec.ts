@@ -1,17 +1,18 @@
 import { test, expect } from '@playwright/test';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, openBenchPress, openSetNotes } from './setup';
 import { readPersistence } from './persistence';
 
 test('omission and completed-set deletion remain independent through cancellation, undo and reopen', async ({ page, context }, info) => {
   await startSyntheticWorkout(page);
+  await openBenchPress(page);
   const fields = page.getByLabel(/^Carga de la serie /);
   const count = await fields.count();
   await page.getByLabel(`Carga de la serie ${count}`, { exact: true }).fill('60');
   await page.getByLabel(`Repeticiones de la serie ${count}`, { exact: true }).fill('8');
-  await page.getByLabel(`Notas de la serie ${count}`, { exact: true }).fill('Exact recorded work');
+  await (await openSetNotes(page, count)).fill('Exact recorded work');
   await page.getByRole('button', { name: `Completar serie ${count}`, exact: true }).click();
   const snapshot = async (p = page) => JSON.parse(String((await readPersistence(p, info)).workouts[0]?.actual_snapshot_json));
-  await expect.poll(async () => (await snapshot()).exercises[0].sets.at(-1).completed).toBe(true);
+  await expect.poll(async () => (await snapshot()).exercises[2].sets.at(-1).completed).toBe(true);
   const before = await snapshot();
   await page.getByRole('button', { name: 'Quitar última serie', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Confirmar eliminación', exact: true })).toBeVisible();
@@ -24,8 +25,8 @@ test('omission and completed-set deletion remain independent through cancellatio
   await page.getByRole('button', { name: 'Confirmar eliminación', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
   await expect(fields).toHaveCount(count - 1);
   const deleted = await snapshot();
-  expect(deleted.exercises[0].sets).toEqual(before.exercises[0].sets.slice(0, -1));
-  expect(deleted.setDeletions[0].set).toEqual(before.exercises[0].sets.at(-1));
+  expect(deleted.exercises[2].sets).toEqual(before.exercises[2].sets.slice(0, -1));
+  expect(deleted.setDeletions[0].set).toEqual(before.exercises[2].sets.at(-1));
   if (count === 2) {
     await page.getByRole('button', { name: 'Quitar última serie', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Confirmar eliminación', exact: true })).toBeDisabled();
@@ -42,25 +43,25 @@ test('omission and completed-set deletion remain independent through cancellatio
   await page.getByLabel('Motivo para omitir la serie 1', { exact: true }).fill('Equipo ocupado');
   await page.getByRole('button', { name: 'Confirmar omisión de la serie 1', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
   await expect(page.getByText('OMITIDA', { exact: true })).toHaveCount(1);
-  await expect.poll(async () => (await snapshot()).exercises[0].sets[0].skipReason).toBe('Equipo ocupado');
+  await expect.poll(async () => (await snapshot()).exercises[2].sets[0].skipReason).toBe('Equipo ocupado');
   const omitted = await snapshot();
   expect(omitted.setDeletions).toEqual(deleted.setDeletions);
   const expectedOmitted = { ...structuredClone(deleted), revision: deleted.revision + 1 };
-  Object.assign(expectedOmitted.exercises[0].sets[0], { completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Equipo ocupado' });
+  Object.assign(expectedOmitted.exercises[2].sets[0], { completed: false, skipped: true, disposition: 'SKIPPED', skipReason: 'Equipo ocupado' });
   expect(omitted).toEqual(expectedOmitted);
-  await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Unrelated later edit');
-  await expect.poll(async () => (await snapshot()).exercises[0].sets[0].notes).toBe('Unrelated later edit');
+  await (await openSetNotes(page, 1)).fill('Unrelated later edit');
+  await expect.poll(async () => (await snapshot()).exercises[2].sets[0].notes).toBe('Unrelated later edit');
   await page.close();
   const reopened = await context.newPage();
   await reopened.goto('/workout');
   await reopened.getByRole('button', { name: 'Deshacer eliminación', exact: true }).evaluate((b: HTMLElement) => { b.click(); b.click(); });
   await expect(reopened.getByLabel(/^Carga de la serie /)).toHaveCount(count);
   const restored = await snapshot(reopened);
-  expect(restored.exercises[0].sets.at(-1)).toEqual(before.exercises[0].sets.at(-1));
-  expect(restored.exercises[0].sets[0].notes).toBe('Unrelated later edit');
-  expect(restored.exercises[0].sets[0]).toEqual({ ...omitted.exercises[0].sets[0], notes: 'Unrelated later edit' });
+  expect(restored.exercises[2].sets.at(-1)).toEqual(before.exercises[2].sets.at(-1));
+  expect(restored.exercises[2].sets[0].notes).toBe('Unrelated later edit');
+  expect(restored.exercises[2].sets[0]).toEqual({ ...omitted.exercises[2].sets[0], notes: 'Unrelated later edit' });
   const expectedExercises = structuredClone(before.exercises);
-  expectedExercises[0].sets[0] = { ...omitted.exercises[0].sets[0], notes: 'Unrelated later edit' };
+  expectedExercises[2].sets[0] = { ...omitted.exercises[2].sets[0], notes: 'Unrelated later edit' };
   expect(restored.exercises).toEqual(expectedExercises);
   expect(restored.setDeletions).toHaveLength(1);
   expect(restored.setDeletions[0].restored).toBe(true);
