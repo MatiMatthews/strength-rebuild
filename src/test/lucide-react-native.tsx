@@ -16,6 +16,7 @@ export const CalendarRange = TestIcon;
 export const ChartNoAxesColumnIncreasing = TestIcon;
 export const Check = TestIcon;
 export const ChevronDown = TestIcon;
+export const ChevronUp = TestIcon;
 export const ChevronRight = TestIcon;
 export const Clock3 = TestIcon;
 export const Dumbbell = TestIcon;
