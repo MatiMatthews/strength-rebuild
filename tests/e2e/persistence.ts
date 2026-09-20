@@ -5,8 +5,8 @@ import { DatabaseSync } from 'node:sqlite';
 // Read the real OPFS file, not application state or a production test hook.
 // The locked Expo SQLite AccessHandlePoolVFS stores a 512-byte pathname in a
 // 4096-byte header before the SQLite file. Fail loudly if that format changes.
-export async function readPersistence(page: Page, info: TestInfo) {
-  const bytes = await page.evaluate(async () => {
+export async function readPersistence(page: Page, info: TestInfo, databaseName = 'strength-rebuild-v2.db') {
+  const bytes = await page.evaluate(async databaseName => {
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle('expo-sqlite');
     const matches: number[][] = [];
@@ -15,14 +15,14 @@ export async function readPersistence(page: Page, info: TestInfo) {
       if (handle.kind !== 'file') continue;
       const data = new Uint8Array(await (await handle.getFile()).arrayBuffer());
       const name = new TextDecoder().decode(data.slice(0, 512)).split('\0')[0];
-      if (name?.endsWith('/strength-rebuild-v2.db')) matches.push(Array.from(data.slice(4096)));
+      if (name?.endsWith(`/${databaseName}`)) matches.push(Array.from(data.slice(4096)));
     }
     if (matches.length !== 1) throw new Error(`Expected one canonical SQLite file, found ${matches.length}`);
     return matches[0]!;
-  });
+  }, databaseName);
   const buffer = Buffer.from(bytes);
   expect(buffer.subarray(0, 16).toString()).toBe('SQLite format 3\0');
-  const filename = info.outputPath('canonical.sqlite');
+  const filename = info.outputPath(databaseName === 'strength-rebuild-v2.db' ? 'canonical.sqlite' : 'demo.sqlite');
   writeFileSync(filename, buffer);
   const db = new DatabaseSync(filename, { readOnly: true });
   try {

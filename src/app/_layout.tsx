@@ -14,26 +14,30 @@ import { seedExerciseCatalog } from '@/data/seeds/exercises';
 import { FontProvider } from '@/design-system/v2.2/font-provider';
 import { useAppTheme } from '@/design-system/use-app-theme';
 import { DataFailureScreen } from '@/features/resilience/DataFailureScreen';
+import { DemoBanner, DemoModeProvider, useDataMode } from '@/features/demo/DemoModeProvider';
+import { DATA_DATABASES, initializeModeStore, MODE_DATABASE, seedDemoSettings } from '@/features/demo/demo-mode';
 
 function RootContent() {
   const theme = useAppTheme();
+  const { mode } = useDataMode()!;
   const [databaseAttempt, setDatabaseAttempt] = useState(0);
   const [databaseFailed, setDatabaseFailed] = useState(false);
 
   if (databaseFailed) {
-    return <DataFailureScreen onRetry={() => { setDatabaseFailed(false); setDatabaseAttempt((attempt) => attempt + 1); }} />;
+    return <><DemoBanner /><DataFailureScreen onRetry={() => { setDatabaseFailed(false); setDatabaseAttempt((attempt) => attempt + 1); }} /></>;
   }
 
   return (
     <>
       <SQLiteProvider
-        databaseName="strength-rebuild-v2.db"
-        key={databaseAttempt}
+        databaseName={DATA_DATABASES[mode]}
+        key={`${mode}-${databaseAttempt}`}
         onError={() => setDatabaseFailed(true)}
         onInit={async (database) => {
           await migrateDatabase(database);
           await seedExerciseCatalog(database as RepositoryDatabase);
-          if (Platform.OS !== 'web') {
+          if (mode === 'demo') await seedDemoSettings(database as RepositoryDatabase);
+          if (mode === 'personal' && Platform.OS !== 'web') {
             const result = await importLegacyState(database as RepositoryDatabase);
             if (result.status === 'invalid' || result.status === 'oversized') {
               console.warn(`Legacy state was preserved but could not be imported (${result.status}).`);
@@ -45,6 +49,7 @@ function RootContent() {
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.canvas }}>
             <SafeAreaProvider>
               <StatusBar style={theme.dark ? 'light' : 'dark'} />
+              <DemoBanner />
               <Stack
                 screenOptions={{
                   animation: 'slide_from_right',
@@ -65,6 +70,17 @@ function RootContent() {
   );
 }
 
+function SelectedDataRoot() {
+  const { mode } = useDataMode()!;
+  return <RootContent key={mode} />;
+}
+
 export default function RootLayout() {
-  return <FontProvider><RootContent /></FontProvider>;
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  return <FontProvider><SafeAreaProvider>{failed
+    ? <DataFailureScreen onRetry={() => { setFailed(false); setAttempt(value => value + 1); }} />
+    : <SQLiteProvider databaseName={MODE_DATABASE} key={attempt} onInit={initializeModeStore} onError={() => setFailed(true)}>
+      <DemoModeProvider><SelectedDataRoot /></DemoModeProvider>
+    </SQLiteProvider>}</SafeAreaProvider></FontProvider>;
 }
