@@ -20,6 +20,7 @@ import type { WeeklyReviewService } from '@/application/progression/weekly-revie
 import type { PendingWeek } from '@/application/progression/weekly-review';
 import { defaultSettings, planningProfile, type SettingsStore, type TrainingSettings } from '@/features/settings/settings';
 import type { BackupService } from '@/application/export';
+import type { PlanSelectionStore } from './plan-selection';
 
 export interface PlanPrograms {
   listCycleLifecycles?: ProgramService['listCycleLifecycles'];
@@ -37,7 +38,7 @@ const names = { hypertrophy: 'Hipertrofia', strength: 'Fuerza', power: 'Potencia
 const dayNames: Record<string, string> = { monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles', thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo' };
 const roleNames: Record<string, string> = { activation: 'Activación', primary: 'Trabajo principal', secondary: 'Trabajo complementario', accessory: 'Trabajo complementario', mobility: 'Movilidad', 'power-primer': 'Preparación de potencia', core: 'Zona media', plyometric: 'Potencia' };
 
-export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, onOpenCycle, programs, reviews, settingsStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; onOpenCycle?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore }) {
+export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettings, onOpenReview, onOpenCycle, programs, reviews, settingsStore, selectionStore }: { focused?: boolean; backups?: BackupService; onOpenBackup?: () => void; onOpenSettings?: () => void; onOpenReview?: () => void; onOpenCycle?: () => void; programs: PlanPrograms; reviews?: WeeklyReviewService; settingsStore?: SettingsStore; selectionStore?: PlanSelectionStore }) {
   const theme = useAppTheme();
   const [invalidSessions, setInvalidSessions] = useState<readonly InvalidSessionReference[]>([]);
   const [reviewing, setReviewing] = useState<InvalidSessionReference | null>(null);
@@ -46,6 +47,9 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [weeks, setWeeks] = useState('4');
   const [cycles, setCycles] = useState<readonly CyclePrescriptionSnapshot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const selecting = useRef(false);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const [lifecycles, setLifecycles] = useState<readonly CycleLifecycle[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,11 +67,12 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       setPendingWeeks([]);
       if (!focused) return;
       // Actions consume one completed focus refresh, never mixed old and new inputs.
-      const [storedCycles, activeId, invalid, settings, lifecycle] = await Promise.all([
+      const [storedCycles, activeId, invalid, settings, lifecycle, selected] = await Promise.all([
         programs.listCycleSnapshots(), programs.getActiveCycleId(),
         programs.listInvalidSessionReferences?.() ?? Promise.resolve([]),
         settingsStore?.load() ?? Promise.resolve(defaultSettings),
         programs.listCycleLifecycles?.() ?? Promise.resolve([]),
+        selectionStore?.load() ?? Promise.resolve(null),
       ]);
       if (!live) return;
       setCycles(!activeId && previewIds.current
@@ -76,13 +81,14 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
       setLifecycles(lifecycle);
       setInvalidSessions(invalid);
       setPlanningSettings(settings);
+      if (selectionStore) setExpanded(storedCycles.some(cycle => cycle.weeks.some(week => `${cycle.id}-${week.index}` === selected)) ? selected : null);
       setFeedback(null);
       setReady(true);
     }).catch(() => {
       if (live) setFeedback({ message: 'No se pudo cargar el plan y su configuración. Vuelve a abrir el plan para intentarlo de nuevo.', tone: 'danger' });
     });
     return () => { live = false; };
-  }, [programs, focused, settingsStore]);
+  }, [programs, focused, settingsStore, selectionStore]);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(async () => {
@@ -137,6 +143,21 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   };
 
   const activeCycle = cycles.find(cycle => cycle.id === active);
+  const selectWeek = async (value: string | null) => {
+    if (selecting.current || !ready || !focused) return;
+    selecting.current = true;
+    setSelectionBusy(true);
+    setSelectionError(null);
+    try {
+      await selectionStore?.save(value);
+      setExpanded(value);
+    } catch {
+      setSelectionError('No se pudo guardar la semana seleccionada. Inténtalo de nuevo.');
+    } finally {
+      selecting.current = false;
+      setSelectionBusy(false);
+    }
+  };
   const previewSavedPreferences = () => {
     if (!ready || !focused || busy || !activeCycle) return;
     setPreferencePreview(null);
@@ -183,6 +204,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
     {ready && focused && preferencePreview ? <PreferencePreview preview={preferencePreview} onClose={() => setPreferencePreview(null)} /> : null}
     <View style={[styles.programRail, { borderColor: theme.border }]} testID="program-rail">
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>
+      {selectionError ? <FeedbackBanner message={selectionError} tone="danger" /> : null}
       {cycles.length === 0 ? <View style={styles.emptyRail}><AppText variant="bodyStrong">Todavía no hay ciclos</AppText><AppText color="muted">Configura la duración para crear una línea de tiempo persistente.</AppText></View> : cycles.flatMap((cycle) => cycle.weeks.map((week) => ({ cycle, week }))).map(({ cycle, week }) => {
         const key = `${cycle.id}-${week.index}`; const open = expanded === key;
         const weekState = lifecycles.find(item => item.id === cycle.id)?.weeks.find(item => item.index === week.index);
@@ -191,34 +213,36 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
         const rowText = transition ? palette.ink : theme.text;
         const rowMuted = transition ? palette.steel : theme.textMuted;
         const kicker = transition || !theme.dark ? palette.caution : palette.signal;
-        return <View key={key} style={[styles.railRow, { borderBottomColor: theme.border }, transition && styles.transition]} testID={transition ? 'transition-block' : undefined}>
+        return <View key={key} style={[styles.railRow, { borderBottomColor: theme.border, flexDirection: 'column' }, transition && styles.transition]} testID={transition ? 'transition-block' : undefined}>
+          <View style={{ flexDirection: 'row', alignItems: 'stretch' }}>
           <View style={styles.ordinal}><AppText style={[styles.ordinalText, { color: rowText }]}>{String(week.index).padStart(2, '0')}</AppText></View>
-          <Pressable accessibilityLabel={`Semana ${week.index} de ${names[cycle.type]}, ${week.sessions.length} sesiones, ${state}`} accessibilityRole="button" onPress={() => setExpanded(open ? null : key)} style={styles.week}>
+          <Pressable accessibilityLabel={`Semana ${week.index} de ${names[cycle.type]}, ${week.sessions.length} sesiones, ${state}`} accessibilityRole="button" aria-expanded={open} accessibilityState={{ expanded: open, disabled: selectionBusy || !ready }} disabled={selectionBusy || !ready} onPress={() => { void selectWeek(open ? null : key); }} style={styles.week}>
             <View style={styles.flex}>
               <View style={styles.between}>
                 <AppText style={[styles.weekKicker, { color: kicker }]}>{transition ? 'TRANSICIÓN · DESCARGA' : `SEMANA ${week.index}`}</AppText>
                 <AppText style={[styles.stateText, { color: rowMuted }]}>{state}</AppText>
               </View>
               <AppText style={[styles.weekTitle, { color: rowText }]}>{names[cycle.type]}</AppText>
-              <AppText style={{ color: rowMuted }} variant="caption">{week.sessions.length} sesiones · toca para ver detalles</AppText>
-              {open ? <View style={[styles.sessions, { borderColor: rowMuted }]}>
-                {week.sessions.map((session) => <View key={session.dayIndex}>
+              <AppText style={{ color: rowMuted }} variant="caption">{weekState ? `${weekState.completedSessions} de ${weekState.totalSessions} sesiones completadas` : `${week.sessions.length} sesiones`} · {open ? 'Ocultar detalles' : 'Ver detalles'}</AppText>
+            </View>
+            <ChevronDown color={rowMuted} size={20} style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }} />
+          </Pressable>
+          </View>
+              {open ? <View style={[styles.sessions, { borderColor: rowMuted, marginHorizontal: spacing.md, paddingBottom: spacing.md, gap: spacing.lg }]}>
+                {week.sessions.map((session) => <View key={session.dayIndex} style={{ gap: spacing.sm }}>
                   <AppText style={{ color: rowText }} variant="bodyStrong">{session.day ? (dayNames[session.day] ?? `Día ${session.dayIndex}`) : `Día ${session.dayIndex} · ${session.exercises.length} ${session.exercises.length === 1 ? 'ejercicio' : 'ejercicios'}`}</AppText>
-                  {(session.blocks ?? [{ role: 'primary', exercises: session.exercises }]).filter((block) => block.role !== 'finish-review').map((block, blockIndex) => <View key={blockIndex}>
+                  {(session.blocks ?? [{ role: 'primary', exercises: session.exercises }]).filter((block) => block.role !== 'finish-review' && block.exercises.length > 0).map((block, blockIndex) => <View key={blockIndex} style={{ gap: spacing.xs }}>
                     <AppText style={{ color: rowMuted }} variant="caption">{roleNames[block.role] ?? 'Bloque de entrenamiento'}</AppText>
                     {block.exercises.map((exercise, index) => <View key={`${exercise.exerciseId}-${index}`}>
                       <AppText style={{ color: rowText }} variant="bodyStrong">{exerciseCatalog.find(({ id }) => id === exercise.exerciseId)?.name ?? `Ejercicio no disponible: ${exercise.exerciseId}`}</AppText>
                       {exercise.target ? <>
                         <AppText style={{ color: rowMuted }} variant="caption">{prescriptionQuantity(exercise)} · RIR {exercise.target.rir.min}–{exercise.target.rir.max}</AppText>
-                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadProvenance?.match(/\b(kg|lb);/)?.[1] ?? '(unidad no registrada)'}` : 'Carga por definir'}</AppText>
+                        {exercise.recording === 'load-reps' || exercise.exerciseId === 'pallof-press' || !exercise.recording || exercise.calculatedLoad !== undefined ? <AppText style={{ color: rowMuted }} variant="caption">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadProvenance?.match(/\b(kg|lb);/)?.[1] ?? '(unidad no registrada)'}` : 'Carga por definir'}</AppText> : null}
                       </> : <AppText style={{ color: rowMuted }} variant="caption">Prescripción no disponible</AppText>}
                     </View>)}
                   </View>)}
                 </View>)}
               </View> : null}
-            </View>
-            <ChevronDown color={rowMuted} size={20} />
-          </Pressable>
         </View>;
       })}
 

@@ -29,7 +29,10 @@ export default function TodayRoute() {
   const [state, setState] = useState<TodayState>({ kind: 'empty' });
   const [activeReadiness, setActiveReadiness] = useState<PersistedReadiness | null>(null);
   const [persistedReadiness, setPersistedReadiness] = useState<PersistedReadiness | null>(null);
-  const navigateToWorkout = useCallback(() => { markWorkoutNavigation(); router.push('/workout'); }, [router]);
+  const navigateToWorkout = useCallback((exerciseIndex?: number) => {
+    markWorkoutNavigation();
+    router.push(exerciseIndex === undefined ? '/workout' : { pathname: '/workout', params: { exercise: String(exerciseIndex) } });
+  }, [router]);
   useEffect(() => {
     if (Platform.OS !== 'web' || !requestedScenario || typeof document === 'undefined') return;
     const observeMarker = () => setScenarioReady(Boolean(document.querySelector('[data-testid="v2.2-scenario-state"]')));

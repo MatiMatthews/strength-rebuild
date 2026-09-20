@@ -66,6 +66,8 @@ import { planningProfile } from '@/features/settings/settings';
 import { savedAlternatives } from '@/features/exercises/saved-alternatives';
 
 type Props = {
+  initialExerciseIndex?: number;
+  onEntryApplied?: () => void;
   focused?: boolean;
   onClose: () => void;
   programs?: ProgramService;
@@ -135,6 +137,8 @@ const preview: WorkoutDraft = {
 };
 
 export function WorkoutReferenceScreen({
+  initialExerciseIndex,
+  onEntryApplied,
   focused = true,
   onClose,
   programs,
@@ -190,6 +194,8 @@ export function WorkoutReferenceScreen({
   const [exerciseIndex, setExerciseIndex] = useState(workouts ? -1 : 0);
   const scrollRef = useRef<ScrollView>(null);
   const latestDraftRef = useRef<WorkoutDraft | null>(draft);
+  const entryAppliedRef = useRef(onEntryApplied);
+  useEffect(() => { entryAppliedRef.current = onEntryApplied; }, [onEntryApplied]);
   useEffect(() => {
     latestDraftRef.current = draft;
   }, [draft]);
@@ -226,23 +232,36 @@ export function WorkoutReferenceScreen({
   }, [settingsStore]);
   useEffect(() => {
     if (!workouts || !programs) return;
+    // Clearing a consumed route parameter must not reload an older position
+    // while the user is already navigating the live draft.
+    if (latestDraftRef.current && initialExerciseIndex === undefined) return;
+    let live = true;
     void loadConfirmedToday(programs)
       .then((today) => {
         setCycleType(today.cycleType ?? 'reentry');
         return workouts.startOrResume(requireReadiness ? today : today.session);
       })
-      .then((restored) => {
-        setExerciseIndex(restored.activeExerciseIndex ?? 0);
-        setDraft(restored);
+      .then(async (restored) => {
+        if (!live) return;
+        const index = initialExerciseIndex;
+        const selected = index !== undefined && Number.isInteger(index) && index >= 0 && index < restored.exercises.length
+          ? { ...restored, activeExerciseIndex: index, activeSetIndex: 0 } : restored;
+        if (selected !== restored) await workouts.saveDraftSnapshot(selected);
+        if (!live) return;
+        latestDraftRef.current = selected;
+        setExerciseIndex(selected.activeExerciseIndex ?? 0);
+        setDraft(selected);
+        if (index !== undefined) entryAppliedRef.current?.();
       })
-      .catch((reason: unknown) =>
-        setError(
+      .catch((reason: unknown) => {
+        if (live) setError(
           reason instanceof Error
             ? reason.message
             : "No se pudo abrir la sesión",
-        ),
-      );
-  }, [programs, requireReadiness, workouts]);
+        );
+      });
+    return () => { live = false; };
+  }, [programs, requireReadiness, workouts, initialExerciseIndex]);
   useEffect(() => {
     if (!draft || !workouts || savingReplacement || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
     const timer = setTimeout(
@@ -442,14 +461,25 @@ export function WorkoutReferenceScreen({
     latestDraftRef.current = next;
     setDraft(next);
   };
-  const navigateExercise = (delta: number) => {
+  const navigateExercise = async (delta: number) => {
     const current = latestDraftRef.current;
-    if (!current || savingSet || savingNavigation) return;
+    if (!current || navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current || replacementLock.current) return;
     const index = Math.max(0, Math.min(current.exercises.length - 1, exerciseIndex + delta));
     const next = { ...current, activeExerciseIndex: index, activeSetIndex: 0 };
-    latestDraftRef.current = next;
-    setSkipSetIndex(null); setSkipReason(''); setSkipError('');
-    setDraft(next); setExerciseIndex(index);
+    navigationLock.current = true;
+    setSavingNavigation(true);
+    setNavigationError('');
+    try {
+      await workouts?.saveDraftSnapshot(next);
+      latestDraftRef.current = next;
+      setSkipSetIndex(null); setSkipReason(''); setSkipError('');
+      setDraft(next); setExerciseIndex(index);
+    } catch {
+      setNavigationError('No se pudo guardar el cambio de ejercicio. Se conserva tu posición; inténtalo de nuevo.');
+    } finally {
+      navigationLock.current = false;
+      setSavingNavigation(false);
+    }
   };
   const completeSetAt = async (index: number, undo = false) => {
     if (completionLock.current) return;
@@ -564,7 +594,7 @@ export function WorkoutReferenceScreen({
       <View style={styles.flex}>
         <View collapsable={false} style={{ display: navigationError || savingNavigation ? "flex" : "none" }} testID="workout-navigation-feedback">
         {navigationError ? <AppText accessibilityRole="alert" color="danger">{navigationError}</AppText> : null}
-        {savingNavigation ? <AppText accessibilityLiveRegion="polite">Guardando antes de salir…</AppText> : null}
+        {savingNavigation ? <AppText accessibilityLiveRegion="polite">Guardando cambios…</AppText> : null}
         </View>
         {lastDeletion ? <Panel>
           <AppText>Serie {lastDeletion.setIndex + 1} eliminada · {exerciseName(lastDeletion.exerciseId)}</AppText>
