@@ -26,6 +26,7 @@ export const Dumbbell = TestIcon;
 export const Minus = TestIcon;
 export const Plus = TestIcon;
 export const Pause = TestIcon;
+export const SkipForward = TestIcon;
 export const Play = TestIcon;
 export const RotateCcw = TestIcon;
 export const RefreshCw = TestIcon;

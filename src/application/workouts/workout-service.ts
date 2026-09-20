@@ -5,7 +5,7 @@ import { enforceRestrictions, mutationSafety, readRestrictions } from './persist
 import { effectiveSession } from '../programs/legacy-repair';
 import type { TodayData } from '../programs/program-service';
 import { SettingRepository, WorkoutRepository, type RepositoryDatabase } from '../../data/repositories';
-import { restoreTimer, type RestTimerState } from '../../features/timer/rest-timer';
+import { restAfterCompletion, restoreTimer, resumeTimer, type RestTimerState } from '../../features/timer/rest-timer';
 import { evaluateSafety, type SafetyInput, type SafetyResult } from '../../domain/safety';
 import type { ReplacementReason } from '../../domain/substitutions';
 import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput } from '../../domain/progression/propose-progression';
@@ -20,7 +20,7 @@ type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['rol
 type PrescribedExercise = TodayData['session']['exercises'][number];
 export interface WorkoutExerciseDraft { recording?: ExerciseRecording; exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
 export interface SafetyModification extends SafetyResult { exerciseIndex: number; setIndex: number; recordedAt: string }
-export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; activeSetIndex?: number; completionMode?: 'early'; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
+export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; activeSetIndex?: number; completionMode?: 'early'; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; autoRestEnabled?: boolean; restSeconds?: number; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
 export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft; corrections?: SetCorrection[] }
 export interface HistoryCorrectionInput { unit?: LoadUnit; workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string; exerciseIndex?: number; expectedLoad?: string; requestId?: string }
@@ -176,11 +176,7 @@ export class WorkoutService {
       const draft = recoverWorkoutLoads(JSON.parse(active.actual_snapshot_json) as WorkoutDraft, active.prescribed_snapshot_json ? JSON.parse(active.prescribed_snapshot_json) : undefined);
       if (sessionPlanId && (draft.sessionPlanId !== sessionPlanId || !this.validReadiness(draft.readiness, sessionPlanId!) || draft.readiness?.sessionStatus !== readiness?.sessionStatus)) throw new Error('El entrenamiento guardado no consume la preparación vigente');
       enforceRestrictions(draft, restrictionSnapshot);
-      const wallClock = Date.parse(this.now());
-      const timerNow = draft.timer?.runningSince !== null && draft.timer?.runningSince !== undefined
-        && wallClock >= draft.timer.runningSince && wallClock - draft.timer.runningSince <= 86_400_000
-        ? wallClock : draft.timer?.runningSince ?? undefined;
-      return { ...draft, ...(readiness ? { readiness } : {}), restrictionSnapshot, exercises: draft.exercises.map((exercise) => ({ ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: set.completed ?? set.disposition === 'COMPLETED', skipped: set.skipped ?? set.disposition === 'SKIPPED', disposition: set.disposition ?? 'PENDING' })) })), safetyModifications: draft.safetyModifications ?? [], timer: restoreTimer(draft.timer, timerNow) };
+      return { ...draft, ...(readiness ? { readiness } : {}), restrictionSnapshot, exercises: draft.exercises.map((exercise) => ({ ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: set.completed ?? set.disposition === 'COMPLETED', skipped: set.skipped ?? set.disposition === 'SKIPPED', disposition: set.disposition ?? 'PENDING' })) })), safetyModifications: draft.safetyModifications ?? [], timer: resumeTimer(draft.timer, Date.parse(this.now())) };
     }
     const id = active?.id ?? this.createId();
     let exercises: WorkoutExerciseDraft[] = executableExercises(session).map(({ exercise, blockRole }) => ({
@@ -369,7 +365,10 @@ export class WorkoutService {
     return replaceExerciseDraft(draft, exerciseIndex, exerciseId, reason, context);
   }
   async completeSetAndSave(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): Promise<WorkoutDraft> {
-    const next = this.completeSet(draft, exerciseIndex, setIndex);
+    const completed = this.completeSet(draft, exerciseIndex, setIndex);
+    const startsRest = draft.exercises[exerciseIndex]?.sets[setIndex]?.disposition !== 'COMPLETED'
+      && completed.exercises[exerciseIndex]?.sets[setIndex]?.disposition === 'COMPLETED';
+    const next = startsRest ? restAfterCompletion(completed, Date.parse(this.now())) : completed;
     await this.saveDraftSnapshot(next);
     return next;
   }

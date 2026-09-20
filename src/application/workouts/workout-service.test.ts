@@ -183,11 +183,12 @@ describe('WorkoutService', () => {
     await service.applyReadiness(firstToday, { pain: 1, painTrend: 'stable', region: 'other', reproducedByBraceCoughOrSneeze: false });
     let draft = await service.startOrResume(firstToday);
     draft = service.recordSet(draft, 1, 0, { notes: 'exact note', pain: 2 });
-    draft = { ...draft, activeExerciseIndex: 1, timer: { durationSeconds: 90, remainingSeconds: 73, runningSince: 1_000 } };
+    const runningSince = Date.parse('2026-08-18T20:01:00.000Z');
+    draft = { ...draft, activeExerciseIndex: 1, timer: { durationSeconds: 90, remainingSeconds: 73, runningSince } };
     await service.save(draft);
 
     const restored = await new WorkoutService(db, undefined, () => '2026-08-18T20:02:00.000Z').startOrResume(firstToday);
-    expect(restored).toMatchObject({ activeExerciseIndex: 1, timer: { remainingSeconds: 73, runningSince: null }, exercises: { 1: { sets: { 0: { notes: 'exact note', pain: 2 } } } } });
+    expect(restored).toMatchObject({ activeExerciseIndex: 1, timer: { remainingSeconds: 73, runningSince }, exercises: { 1: { sets: { 0: { notes: 'exact note', pain: 2 } } } } });
     const completed = restored.exercises.reduce((current, exercise, exerciseIndex) => exercise.sets.reduce((setsDraft, _set, setIndex) => service.completeSet(setsDraft, exerciseIndex, setIndex), current), restored);
     const firstCompletion = await service.complete(completed);
     expect((await programs.getToday())?.sessionPlanId).not.toBe(firstToday.sessionPlanId);
