@@ -1,4 +1,6 @@
 import { LegacyReferencePreview } from './LegacyReferencePreview';
+import { PreferencePreview } from './PreferencePreview';
+import { previewPreferences } from './preference-preview';
 import { prescriptionQuantity } from '@/domain/prescriptions/measurement';
 import type { ProgramService, InvalidSessionReference, CycleLifecycle } from '@/application/programs/program-service';
 import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
@@ -50,11 +52,13 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   const [feedback, setFeedback] = useState<{ message: string; tone: 'danger' | 'success' } | null>(null);
   const [planningSettings, setPlanningSettings] = useState<TrainingSettings>(defaultSettings);
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
+  const [preferencePreview, setPreferencePreview] = useState<CyclePrescriptionSnapshot | null>(null);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(async () => {
       if (!live) return;
       setReady(false);
+      setPreferencePreview(null);
       setReviewing(null);
       setPendingWeeks([]);
       if (!focused) return;
@@ -133,6 +137,16 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
   };
 
   const activeCycle = cycles.find(cycle => cycle.id === active);
+  const previewSavedPreferences = () => {
+    if (!ready || !focused || busy || !activeCycle) return;
+    setPreferencePreview(null);
+    try {
+      setPreferencePreview(previewPreferences(planningSettings, activeCycle.type));
+      setFeedback(null);
+    } catch (error) {
+      setFeedback({ message: error instanceof Error ? error.message : 'No se pudo preparar la vista previa. Revisa tus preferencias.', tone: 'danger' });
+    }
+  };
   const lifecycle = lifecycles.find(cycle => cycle.id === active);
   const currentWeek = lifecycle?.currentWeekIndex ?? (lifecycle ? null : activeCycle?.weeks[0]?.index);
   const phaseLabel = lifecycle?.awaitingConfirmation ? 'Ciclo completado: confirmación pendiente'
@@ -165,6 +179,8 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
     </Panel>}
     {!active && cycles.length > 0 ? <Panel accent={palette.transition}><AppText variant="bodyStrong">Confirma antes de activar</AppText><AppText color="muted">Se guardarán todas las semanas y sesiones. El calendario por sí solo nunca avanzará el ciclo.</AppText><ActionButton accessibilityLabel="Activar plan confirmado" disabled={busy || !ready || !focused} onPress={activate}>Activar plan</ActionButton></Panel> : null}
     <OperationalSection label="HERRAMIENTAS DEL PLAN"><AppText color="muted">Edita tu perfil y equipo, o administra una copia local, en pantallas separadas.</AppText>{onOpenSettings ? <ActionButton accessibilityLabel="Abrir configuración del plan" onPress={onOpenSettings} tone="secondary">Configuración del plan</ActionButton> : null}{onOpenBackup ? <ActionButton accessibilityLabel="Abrir respaldo y recuperación" onPress={onOpenBackup} tone="secondary">Respaldo y recuperación</ActionButton> : null}</OperationalSection>
+    {active && settingsStore ? <ActionButton accessibilityLabel="Ver vista previa de preferencias" disabled={!ready || !focused || busy || !activeCycle} onPress={previewSavedPreferences} tone="secondary">Ver vista previa de preferencias</ActionButton> : null}
+    {ready && focused && preferencePreview ? <PreferencePreview preview={preferencePreview} onClose={() => setPreferencePreview(null)} /> : null}
     <View style={[styles.programRail, { borderColor: theme.border }]} testID="program-rail">
       <View style={styles.railHeader}><AppText accessibilityRole="header" aria-level={2} style={styles.railTitle}>PROGRAMA</AppText><AppText style={styles.railState}>{active ? 'EN CURSO' : 'BORRADOR'}</AppText></View>
       {cycles.length === 0 ? <View style={styles.emptyRail}><AppText variant="bodyStrong">Todavía no hay ciclos</AppText><AppText color="muted">Configura la duración para crear una línea de tiempo persistente.</AppText></View> : cycles.flatMap((cycle) => cycle.weeks.map((week) => ({ cycle, week }))).map(({ cycle, week }) => {
