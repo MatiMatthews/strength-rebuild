@@ -184,6 +184,7 @@ describe('Workout reference state', () => {
     expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
     await fireEvent.press(screen.getByLabelText('Completar serie 1'));
     await fireEvent.press(screen.getByLabelText('Completar serie 2'));
+    await fireEvent.press(screen.getByLabelText('Editar serie 3'));
     await fireEvent.press(screen.getByLabelText('Omitir serie 3'));
     await fireEvent.changeText(screen.getByLabelText('Motivo para omitir la serie 3'), 'Molestia durante la serie');
     await fireEvent.press(screen.getByLabelText('Confirmar omisión de la serie 3'));
@@ -202,7 +203,9 @@ describe('Workout reference state', () => {
     await fireEvent.press(screen.getByLabelText('Completar serie 1'));
     expect(playContractedHaptic).toHaveBeenCalledWith('setCompleted');
     expect(screen.getByText('COMPLETADA')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByLabelText('Revisar y terminar entrenamiento').props.accessibilityState).toMatchObject({ disabled: false });
+    await fireEvent.press(screen.getByLabelText('Revisar y terminar entrenamiento'));
+    expect(screen.getByText(/1 completada.*0 omitidas.*2 pendientes/)).toBeOnTheScreen();
   });
 });
 

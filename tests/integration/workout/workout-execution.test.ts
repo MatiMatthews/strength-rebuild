@@ -5,12 +5,94 @@ import { migrateDatabase, type MigrationDatabase } from '../../../src/data/migra
 import { WorkoutRepository, type RepositoryDatabase, type SqlValue } from '../../../src/data/repositories';
 import { WorkoutService } from '../../../src/application/workouts/workout-service';
 import type { TodayData } from '../../../src/application/programs/program-service';
+import { buildHistoryAnalytics } from '../../../src/domain/analytics/workout-history';
+import { generatePrescription } from '../../../src/domain/prescriptions/generator';
 
 function openDatabase(path: string) {
   const sqlite = new DatabaseSync(path);
   const db = { exec: (sql: string) => sqlite.exec(sql), runAsync: async (sql: string, ...params: SqlValue[]) => { const result = sqlite.prepare(sql).run(...params); return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) }; }, getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never, getAllAsync: async (sql: string, ...params: SqlValue[]) => sqlite.prepare(sql).all(...params) as never, withTransactionAsync: async (task: () => Promise<void>) => { sqlite.exec('BEGIN'); try { await task(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; } } } as RepositoryDatabase & MigrationDatabase;
   return { sqlite, db };
 }
+
+describe('explicit early completion', () => {
+  it('requires confirmation and completed work, preserving every pending and skipped field through reopen', async () => {
+    const { sqlite, db } = openDatabase(':memory:');
+    await migrateDatabase(db);
+    const session = { dayIndex: 1, exercises: [{ exerciseId: 'barbell-bench-press', requirement: 'EXACT',
+      target: { sets: 4, reps: { min: 8, max: 10 }, rir: { min: 2, max: 3 } } }] } as unknown as TodayData['session'];
+    const service = new WorkoutService(db, undefined, () => '2026-09-20T12:00:00Z', () => 'early-work');
+    let draft = await service.startOrResume(session);
+    await expect(service.complete(draft, { finishEarly: true })).rejects.toThrow();
+    draft = service.recordSet(draft, 0, 0, { load: '60', reps: '8' });
+    draft = service.completeSet(draft, 0, 0);
+    draft = service.skipSet(draft, 0, 1, 'Equipment occupied');
+    draft = service.recordSet(draft, 0, 2, { notes: 'Edited but not confirmed', load: '42.5' });
+    const original = structuredClone(draft);
+    await expect(service.complete(draft)).rejects.toThrow('Incomplete');
+    sqlite.exec("CREATE TRIGGER fail_early BEFORE UPDATE OF status ON workout_session BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END");
+    await expect(service.complete(draft, { finishEarly: true })).rejects.toThrow('synthetic write failure');
+    expect(sqlite.prepare('SELECT status FROM workout_session').get()).toEqual({ status: 'IN_PROGRESS' });
+    sqlite.exec('DROP TRIGGER fail_early');
+    await service.complete(draft, { finishEarly: true });
+    const history = await new WorkoutService(db).listHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]!.actual.exercises).toEqual(original.exercises);
+    expect(history[0]!.actual.completionMode).toBe('early');
+    expect(history[0]!.actual.exercises[0]!.sets.map(set => set.disposition)).toEqual(['COMPLETED', 'SKIPPED', 'PENDING', 'PENDING']);
+    expect(buildHistoryAnalytics(history)).toMatchObject({ completedSetCount: 1, skippedSetCount: 1, pendingSetCount: 2, adherence: 0.25 });
+    await service.complete(draft, { finishEarly: true });
+    expect(await service.listHistory()).toHaveLength(1);
+    sqlite.close();
+  });
+});
+
+describe('explicit exercise measurements', () => {
+  it('uses the replacement measurement without inventing a value in a different unit', async () => {
+    const { sqlite, db } = openDatabase(':memory:');
+    await migrateDatabase(db);
+    const session = generatePrescription({ id: 'replacement-units', type: 'strength', weeks: 1 }).weeks[0]!.sessions[0]!;
+    const service = new WorkoutService(db);
+    const initial = await service.startOrResume(session);
+    const replaced = service.replaceExercise(initial, 0, 'thoracic-mobility', 'other');
+    expect(replaced.exercises[0]!.recording).toBe('bodyweight-reps');
+    expect(replaced.exercises[0]!.sets).toEqual(initial.exercises[0]!.sets);
+    expect(() => service.completeSet(replaced, 0, 0)).toThrow();
+    const recorded = service.completeSet(service.recordSet(replaced, 0, 0, { reps: '5' }), 0, 0);
+    await service.saveDraftSnapshot(recorded);
+    const restored = await new WorkoutService(db).startOrResume(session);
+    expect(restored.exercises[0]).toMatchObject({ recording: 'bodyweight-reps', sets: [expect.objectContaining({ reps: '5', seconds: '60', load: '' }), expect.anything(), expect.anything()] });
+    sqlite.close();
+  });
+
+  it('persists seconds and per-side repetitions without reinterpreting a legacy workout', async () => {
+    const { sqlite, db } = openDatabase(':memory:');
+    await migrateDatabase(db);
+    const session = generatePrescription({ id: 'measurements', type: 'strength', weeks: 1 }).weeks[0]!.sessions[0]!;
+    const service = new WorkoutService(db, undefined, () => '2026-09-20T12:00:00Z', () => 'measured-work');
+    let draft = await service.startOrResume(session);
+    expect(draft.exercises[0]).toMatchObject({ recording: 'seconds', sets: [expect.objectContaining({ seconds: '60', reps: '', load: '' }), expect.anything(), expect.anything()] });
+    const coreIndex = draft.exercises.findIndex(exercise => exercise.exerciseId === 'dead-bug');
+    expect(draft.exercises[coreIndex]).toMatchObject({ recording: 'reps-per-side' });
+    draft = service.recordSet(draft, 0, 0, { seconds: '45' });
+    draft = service.completeSet(draft, 0, 0);
+    await service.saveDraftSnapshot(draft);
+    const restored = await new WorkoutService(db).startOrResume(session);
+    expect(restored.exercises[0]!.sets[0]).toMatchObject({ seconds: '45', reps: '', completed: true });
+    expect(() => service.completeSet(service.recordSet(restored, 0, 1, { seconds: '' }), 0, 1)).toThrow();
+    expect(() => service.completeSet(service.recordSet(restored, 0, 1, { seconds: '-1' }), 0, 1)).toThrow();
+    sqlite.close();
+
+    const legacyDb = openDatabase(':memory:');
+    await migrateDatabase(legacyDb.db);
+    const legacySession = { dayIndex: 1, exercises: [{ exerciseId: 'bodyweight-activation', requirement: 'CAPABILITY',
+      target: { sets: 1, reps: { min: 8, max: 10 }, rir: { min: 2, max: 3 }, load: 20 } }] } as unknown as TodayData['session'];
+    const legacy = await new WorkoutService(legacyDb.db).startOrResume(legacySession);
+    expect(legacy.exercises[0]!.recording).toBeUndefined();
+    expect(legacy.exercises[0]!.sets[0]).toMatchObject({ load: '20', reps: '8' });
+    expect(legacy.exercises[0]!.sets[0]!.seconds).toBeUndefined();
+    legacyDb.sqlite.close();
+  });
+});
 
 describe('workout execution seam', () => {
   it('runs Today through replacement, safety modification, process restore, completion, and immutable History data', async () => {

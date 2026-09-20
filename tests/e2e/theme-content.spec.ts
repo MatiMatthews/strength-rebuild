@@ -1,6 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import { inspectContent } from './content-contrast';
-import { isLastWorkoutExercise, startSyntheticWorkout } from './setup';
+import { isLastWorkoutExercise, startSyntheticWorkout, fillSetQuantity } from './setup';
 import { readPersistence } from './persistence';
 
 async function readableText(locator: Locator) {
@@ -69,8 +69,7 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} stati
     const count = await page.getByTestId('set-entry-row').count();
     expect(count).toBeGreaterThan(0);
     for (let set = 1; set <= count; set++) {
-      await page.getByLabel(`Carga de la serie ${set}`, { exact: true }).fill('0');
-      await page.getByLabel(`Repeticiones de la serie ${set}`, { exact: true }).fill('8');
+      await fillSetQuantity(page, set);
       await page.getByRole('button', { name: `Completar serie ${set}`, exact: true }).click();
     }
     const next = page.getByRole('button', { name: 'Siguiente ejercicio', exact: true });

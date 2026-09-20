@@ -1,5 +1,6 @@
 import { exerciseCatalog, type SeedExercise } from '../../data/seeds/exercises';
 import { catalogCompatibility, resolveCatalogRequirements } from './catalog-requirements';
+import { recordingForExercise, type ExerciseRecording } from './measurement';
 
 export const PRESCRIPTION_POLICY_VERSION = 'cycle-prescription-v1';
 
@@ -32,6 +33,7 @@ interface Range {
 }
 
 interface ExerciseTarget {
+  readonly seconds?: number;
   readonly sets: number;
   readonly reps: Range;
   readonly rir: Range;
@@ -39,6 +41,7 @@ interface ExerciseTarget {
 }
 
 interface ExercisePrescription {
+  readonly recording?: ExerciseRecording;
   /** Role retained by the compatibility projection in `session.exercises`. */
   readonly blockRole?: Exclude<NonNullable<SessionPrescription['blocks']>[number]['role'], 'finish-review'>;
   readonly exerciseId: string;
@@ -134,14 +137,17 @@ export function prescribeCatalogExercise(
   requirement: ExercisePrescription['requirement'], extras: Partial<ExercisePrescription> = {},
 ): ExercisePrescription {
   const target = profileByType[request.type];
+  const recording = recordingForExercise(exercise.id);
   const reference = !request.profile ? null
     : exercise.id === 'barbell-bench-press' ? { label: 'bench press reference', value: request.profile.benchPressReference }
     : exercise.id === 'smith-box-squat' ? { label: 'back squat reference', value: request.profile.backSquatReference } : null;
   return deepFreeze({
     exerciseId: exercise.id,
+    recording,
     requirement,
     target: {
       sets: target.sets,
+      ...(recording === 'seconds' ? { seconds: 60 } : {}),
       reps: { ...target.reps },
       rir: { ...target.rir },
       loadPercent: target.loadPercent ? { ...target.loadPercent } : null,

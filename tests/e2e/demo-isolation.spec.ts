@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readPersistence } from './persistence';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, fillSetQuantity, openSetNotes } from './setup';
 import { changeCycleFixture } from './cycle-fixture';
 
 const demoFile = 'strength-rebuild-demo.db';
@@ -15,9 +15,8 @@ async function enterDemo(page: Page) {
 test('explicit demo preserves personal settings, legacy marker, setup, history and active workout across restart', async ({ page, context }, info) => {
   test.setTimeout(180_000);
   await startSyntheticWorkout(page);
-  await page.getByLabel('Carga de la serie 1', { exact: true }).fill('0');
-  await page.getByLabel('Repeticiones de la serie 1', { exact: true }).fill('8');
-  await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Synthetic persistence smoke');
+  await fillSetQuantity(page, 1);
+  await (await openSetNotes(page, 1)).fill('Synthetic persistence smoke');
   await page.getByRole('button', { name: 'Completar serie 1', exact: true }).click();
   await expect.poll(async () => (await readPersistence(page, info)).sets.length).toBe(1);
   // Add immutable synthetic history and a legacy marker beside real active work.
@@ -40,9 +39,8 @@ test('explicit demo preserves personal settings, legacy marker, setup, history a
   await app.getByRole('button', { name: 'Guardar configuración local', exact: true }).click();
   await expect(app.getByText('Configuración guardada en este dispositivo.')).toBeVisible();
   await startSyntheticWorkout(app);
-  await app.getByLabel('Carga de la serie 1', { exact: true }).fill('0');
-  await app.getByLabel('Repeticiones de la serie 1', { exact: true }).fill('6');
-  await app.getByLabel('Notas de la serie 1', { exact: true }).fill('Synthetic persistence smoke');
+  await fillSetQuantity(app, 1, '6');
+  await (await openSetNotes(app, 1)).fill('Synthetic persistence smoke');
   await app.getByRole('button', { name: 'Completar serie 1', exact: true }).click();
   await expect.poll(async () => (await readPersistence(app, info, demoFile)).sets.length).toBe(1);
   const demo = await readPersistence(app, info, demoFile);

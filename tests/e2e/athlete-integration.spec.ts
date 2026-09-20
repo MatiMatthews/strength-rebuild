@@ -2,7 +2,7 @@ import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { fieldContrast } from './field-contrast';
 import { navigationContrast } from './navigation-contrast';
 import { readPersistence } from './persistence';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, fillSetQuantity, openSetNotes } from './setup';
 
 async function inspectHeader(page: Page, info: TestInfo, name: string, scale: number, preparation = false) {
   const surface = preparation ? page.getByTestId('readiness-focused-surface') : page;
@@ -78,9 +78,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await navigationContrast(page.getByLabel('Dolor de 0 a 2, estable', { exact: true }), info, 'readiness-choice');
     });
     for (const scale of [1, 1.4, 2]) await inspectHeader(page, info, `workout-${scale}`, scale);
-    await page.getByLabel('Carga de la serie 1', { exact: true }).fill('0');
-    await page.getByLabel('Repeticiones de la serie 1', { exact: true }).fill('8');
-    await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Synthetic persistence smoke');
+    await fillSetQuantity(page, 1);
+    await (await openSetNotes(page, 1)).fill('Synthetic persistence smoke');
     await page.getByRole('button', { name: 'Completar serie 1', exact: true }).click();
     await expect.poll(async () => (await readPersistence(page, info)).sets).toHaveLength(1);
     const saved = await readPersistence(page, info);

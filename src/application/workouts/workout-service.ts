@@ -11,14 +11,15 @@ import type { ReplacementReason } from '../../domain/substitutions';
 import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput } from '../../domain/progression/propose-progression';
 
 import type { SetDeletion } from './set-deletion';
+import { recordingForExercise, validRecordedQuantity, type ExerciseRecording } from '../../domain/prescriptions/measurement';
 
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
-export interface WorkoutSetDraft { loadEntry?: LoadEntry | undefined; loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
+export interface WorkoutSetDraft { seconds?: string; loadEntry?: LoadEntry | undefined; loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
 type SessionBlockRole = NonNullable<TodayData['session']['blocks']>[number]['role'];
 type PrescribedExercise = TodayData['session']['exercises'][number];
-export interface WorkoutExerciseDraft { exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
+export interface WorkoutExerciseDraft { recording?: ExerciseRecording; exerciseId: string; requirement: 'EXACT' | 'PATTERN' | 'CAPABILITY'; originalExerciseId: string; blockRole?: Exclude<SessionBlockRole, 'finish-review'>; qualityStops?: readonly string[]; loadProvenance?: string; replacement?: { fromExerciseId: string; reason: ReplacementReason }; sets: WorkoutSetDraft[] }
 export interface SafetyModification extends SafetyResult { exerciseIndex: number; setIndex: number; recordedAt: string }
-export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
+export interface WorkoutDraft { revision?: number; restrictionSnapshot?: string; setDeletions?: SetDeletion[]; id: string; sessionPlanId?: string; activeExerciseIndex?: number; activeSetIndex?: number; completionMode?: 'early'; exercises: WorkoutExerciseDraft[]; timer?: RestTimerState; safetyModifications: SafetyModification[]; readiness?: PersistedReadiness }
 export interface WorkoutSummary { id: string; exerciseCount: number; setCount: number; completedAt: string }
 export interface WorkoutHistoryItem { id: string; completedAt: string; prescribed: TodayData['session']; actual: WorkoutDraft; corrections?: SetCorrection[] }
 export interface HistoryCorrectionInput { unit?: LoadUnit; workoutId: string; exerciseId: string; setIndex: number; load: string; reason: string; exerciseIndex?: number; expectedLoad?: string; requestId?: string }
@@ -182,10 +183,13 @@ export class WorkoutService {
     }
     const id = active?.id ?? this.createId();
     let exercises: WorkoutExerciseDraft[] = executableExercises(session).map(({ exercise, blockRole }) => ({
+      ...(exercise.recording ? { recording: exercise.recording } : {}),
       exerciseId: exercise.exerciseId, originalExerciseId: exercise.exerciseId, ...(blockRole ? { blockRole } : {}), qualityStops: exercise.qualityStops, ...('loadProvenance' in exercise && exercise.loadProvenance ? { loadProvenance: exercise.loadProvenance } : {}), requirement: typeof exercise.requirement === 'string' ? exercise.requirement : (exercise.requirement as { kind: WorkoutExerciseDraft['requirement'] }).kind,
       sets: Array.from({ length: exercise.target.sets }, () => ({
         ...('loadUnit' in exercise && exercise.loadUnit ? { loadUnit: exercise.loadUnit } : {}),
-        load: String(exercise.calculatedLoad ?? ('load' in exercise.target ? exercise.target.load : '') ?? ''), reps: String(exercise.target.reps.min),
+        load: String(exercise.calculatedLoad ?? ('load' in exercise.target ? exercise.target.load : '') ?? ''),
+        reps: exercise.recording === 'seconds' ? '' : String(exercise.target.reps.min),
+        ...(exercise.recording === 'seconds' ? { seconds: String(exercise.target.seconds ?? '') } : {}),
         rir: String(exercise.target.rir.min), technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING',
       })),
     }));
@@ -204,7 +208,10 @@ export class WorkoutService {
   }
 
   private validateLoads(draft: WorkoutDraft): void {
-    for (const exercise of draft.exercises) for (const set of exercise.sets) canonicalSet(set);
+    for (const exercise of draft.exercises) for (const set of exercise.sets) {
+      canonicalSet(set);
+      if (set.disposition === 'COMPLETED' && !validRecordedQuantity(exercise.recording, set)) throw new Error('Revisa la cantidad de la serie completada. Debe ser un entero positivo.');
+    }
     for (const deletion of draft.setDeletions ?? []) canonicalSet(deletion.set);
   }
 
@@ -360,7 +367,10 @@ export class WorkoutService {
   replaceExercise(draft: WorkoutDraft, exerciseIndex: number, exerciseId: string, reason: ReplacementReason): WorkoutDraft {
     const current = draft.exercises[exerciseIndex];
     if (!current) throw new RangeError('Workout exercise does not exist');
-    return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, exerciseId, replacement: { fromExerciseId: item.exerciseId, reason } } : item) };
+    if (current.recording && current.recording !== recordingForExercise(exerciseId) && current.sets.some(set => set.disposition === 'COMPLETED')) {
+      throw new Error('Cambiar la unidad de un ejercicio con trabajo completado requiere revisión. Conserva el ejercicio actual.');
+    }
+    return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, exerciseId, ...(item.recording ? { recording: recordingForExercise(exerciseId) } : {}), replacement: { fromExerciseId: item.exerciseId, reason } } : item) };
   }
   async completeSetAndSave(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): Promise<WorkoutDraft> {
     const next = this.completeSet(draft, exerciseIndex, setIndex);
@@ -368,6 +378,9 @@ export class WorkoutService {
     return next;
   }
   completeSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): WorkoutDraft {
+    const exercise = draft.exercises[exerciseIndex];
+    const set = exercise?.sets[setIndex];
+    if (!set || !validRecordedQuantity(exercise?.recording, set)) throw new Error('Registra una cantidad entera mayor que cero antes de completar la serie.');
     return this.recordSet(draft, exerciseIndex, setIndex, { completed: true, skipped: false, disposition: 'COMPLETED', skipReason: undefined });
   }
   skipSet(draft: WorkoutDraft, exerciseIndex: number, setIndex: number, reason: string): WorkoutDraft {
@@ -379,9 +392,17 @@ export class WorkoutService {
   }
   canComplete(draft: WorkoutDraft): boolean {
     const sets = draft.exercises.flatMap((exercise) => exercise.sets);
-    return !this.hasUnsafeCompletion(draft) && draft.exercises.length > 0
+    return !this.hasUnsafeCompletion(draft) && this.validCompletedQuantities(draft) && draft.exercises.length > 0
       && sets.some((set) => set.disposition === 'COMPLETED')
       && draft.exercises.every((exercise) => exercise.sets.length > 0 && exercise.sets.every((set) => set.completed || (set.skipped && Boolean(set.skipReason?.trim()))));
+  }
+  canFinishEarly(draft: WorkoutDraft): boolean {
+    return !this.hasUnsafeCompletion(draft) && this.validCompletedQuantities(draft) && draft.exercises.length > 0
+      && draft.exercises.every(exercise => exercise.sets.length > 0)
+      && draft.exercises.some(exercise => exercise.sets.some(set => set.disposition === 'COMPLETED'));
+  }
+  private validCompletedQuantities(draft: WorkoutDraft): boolean {
+    return draft.exercises.every(exercise => exercise.sets.every(set => set.disposition !== 'COMPLETED' || validRecordedQuantity(exercise.recording, set)));
   }
   async listHistory(): Promise<WorkoutHistoryItem[]> {
     const rows = await this.db.getAllAsync<HistoryRow>("SELECT id, prescribed_snapshot_json, actual_snapshot_json, completed_at FROM workout_session WHERE status = 'COMPLETED' ORDER BY completed_at DESC");
@@ -432,17 +453,19 @@ export class WorkoutService {
       });
     } finally { this.correctionBusy = false; }
   }
-  async complete(draft: WorkoutDraft): Promise<WorkoutSummary> {
+  async complete(draft: WorkoutDraft, options: { finishEarly?: boolean } = {}): Promise<WorkoutSummary> {
     this.validateLoads(draft);
     if (this.hasUnsafeCompletion(draft)) throw new Error('La seguridad del entrenamiento impide completarlo');
     const hasCompletedSet = draft.exercises.some((exercise) => exercise.sets.some((set) => set.disposition === 'COMPLETED'));
     const hasLegacyRecordedWork = draft.exercises.some((exercise) => exercise.sets.some((set) => set.notes.trim()));
-    if (!this.canComplete(draft) && (hasCompletedSet || !hasLegacyRecordedWork)) throw new Error('Incomplete workout: at least one completed set is required and every required set must be completed or skipped with a reason');
+    if (options.finishEarly ? !this.canFinishEarly(draft) : !this.canComplete(draft) && (hasCompletedSet || !hasLegacyRecordedWork)) throw new Error('Incomplete workout: at least one completed set is required and every required set must be completed or skipped with a reason');
     const existing = await this.repository.get(draft.id);
     if (existing?.status === 'COMPLETED' && existing.completedAt) return this.summary(draft, existing.completedAt);
     const completedAt = this.now();
+    const finalDraft = options.finishEarly && draft.exercises.some(exercise => exercise.sets.some(set => set.disposition === 'PENDING'))
+      ? { ...draft, completionMode: 'early' as const } : draft;
     await this.db.withTransactionAsync(async () => {
-      await this.repository.complete(draft.id, JSON.stringify({ ...draft, timer: restoreTimer(draft.timer) }), completedAt, mutationSafety(draft));
+      await this.repository.complete(draft.id, JSON.stringify({ ...finalDraft, timer: restoreTimer(draft.timer) }), completedAt, mutationSafety(draft));
       if (!draft.sessionPlanId) return;
       const plan = await this.db.runAsync("UPDATE session_plan SET status = 'COMPLETED', updated_at = ? WHERE id = ? AND status = 'PLANNED'", completedAt, draft.sessionPlanId);
       if (plan.changes !== 1) throw new Error(`Session plan ${draft.sessionPlanId} is not planned`);
@@ -475,7 +498,8 @@ export class WorkoutService {
        WHERE s.id = ?`,
       draft.sessionPlanId,
     );
-    const actual = draft.exercises.find((exercise) => exercise.requirement === 'EXACT') ?? draft.exercises[0];
+    const actual = draft.exercises.find((exercise) => exercise.requirement === 'EXACT' && exercise.recording !== 'seconds')
+      ?? draft.exercises.find(exercise => exercise.recording !== 'seconds');
     if (!context || !actual) return;
     const session = await effectiveSession(this.db, draft.sessionPlanId, JSON.parse(context.snapshot_json) as TodayData['session']);
     const prescribed = executableExercises(session).find(({ exercise }) => exercise.exerciseId === actual.exerciseId)?.exercise;

@@ -1,7 +1,7 @@
-import type { PropsWithChildren, ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import type { PropsWithChildren, ReactNode, RefObject } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { AppText, IconButton } from '@/design-system/v2.2/primitives';
+import { AppText, IconButton, Screen } from '@/design-system/v2.2/primitives';
 import { borders, palette, spacing } from '@/design-system/v2.2/tokens';
 import { useAppTheme } from '@/design-system/use-app-theme';
 import { X } from 'lucide-react-native';
@@ -9,11 +9,11 @@ import { X } from 'lucide-react-native';
 import { ExerciseProgressRail } from './ExerciseProgressRail';
 import { AppMasthead, BottomCommandDock } from '@/design-system/v2.2/components';
 
-type Props = PropsWithChildren<{ busy?: boolean; current: number; exerciseName: string; nextName?: string | undefined; onClose: () => void; onShowGuidance: () => void; total: number; commands: ReactNode }>;
+type Props = PropsWithChildren<{ busy?: boolean; current: number; exerciseName: string; nextName?: string | undefined; onClose: () => void; onShowGuidance: () => void; total: number; commands: ReactNode; scrollRef?: RefObject<ScrollView | null> }>;
 
-export function WorkoutFrame({ busy = false, children, commands, current, exerciseName, nextName, onClose, onShowGuidance, total }: Props) {
+export function WorkoutFrame({ busy = false, children, commands, current, exerciseName, nextName, onClose, onShowGuidance, total, scrollRef }: Props) {
   const theme = useAppTheme();
-  return <>
+  return <Screen {...(scrollRef ? { scrollRef } : {})} testID="workout-screen" footer={<BottomCommandDock><View style={[styles.commandBar, { borderTopColor: theme.text }]} testID="workout-command-bar">{commands}</View></BottomCommandDock>}><View style={styles.content}>
     <AppMasthead role="task" command={<IconButton disabled={busy} accessibilityLabel="Cerrar entrenamiento" icon={X} onPress={onClose} />} context="GUARDADO AUTOMÁTICO" title="ENTRENAMIENTO" />
     <ExerciseProgressRail current={current} total={total} />
     <View style={[styles.header, { borderBottomColor: theme.text }]} testID="workout-exercise-header">
@@ -24,11 +24,11 @@ export function WorkoutFrame({ busy = false, children, commands, current, exerci
       <AppText accessibilityLabel={nextName ? `Siguiente: ${nextName}` : 'Último ejercicio'} color="muted" variant="caption">{nextName ? `SIGUE · ${nextName}` : 'ÚLTIMO EJERCICIO'}</AppText>
     </View>
     {children}
-    <BottomCommandDock><View style={[styles.commandBar, { borderTopColor: theme.text }]} testID="workout-command-bar">{commands}</View></BottomCommandDock>
-  </>;
+  </View></Screen>;
 }
 
 const styles = StyleSheet.create({
+  content: { gap: spacing.sm },
   masthead: { alignItems: 'center', backgroundColor: palette.signal, flexDirection: 'row', gap: spacing.md, minHeight: 64, paddingHorizontal: spacing.md },
   mastheadLabel: { color: palette.ink },
   header: { borderBottomColor: palette.ink, borderBottomWidth: borders.emphasis, gap: spacing.xs, paddingVertical: spacing.lg },

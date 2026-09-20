@@ -311,16 +311,16 @@ export function HistoryReferenceScreen({
                           {completed
                             .map(
                               (set) =>
-                                `${loadText(set.load)} × ${set.reps || "sin repeticiones"} · RIR/RPE ${set.rir || "—"} · técnica ${set.technique} · molestia ${set.pain}/10${set.notes ? ` · ${set.notes}` : ""}`,
+                                `${exercise.recording === 'seconds' ? `${set.seconds} s` : `${loadText(set.load)} × ${set.reps || "sin repeticiones"}${exercise.recording === 'reps-per-side' ? ' por lado' : ''}`} · RIR/RPE ${set.rir || "—"} · técnica ${set.technique} · molestia ${set.pain}/10${set.notes ? ` · ${set.notes}` : ""}`,
                             )
                             .join(", ")}
                         </AppText>
                       ) : (
                         <AppText>Sin series completadas</AppText>
                       )}
-                      {exercise.sets.map((set, setIndex) => completed.includes(set) && workouts.correctHistory ? (
+                      {exercise.sets.map((set, setIndex) => completed.includes(set) && workouts.correctHistory && exercise.recording !== 'seconds' ? (
                         <View key={setIndex}>
-                          <AppText>Serie {setIndex + 1}: {loadText(set.load)} × {set.reps}</AppText>
+                          <AppText>Serie {setIndex + 1}: {loadText(set.load)} × {set.reps}{exercise.recording === 'reps-per-side' ? ' por lado' : ''}</AppText>
                           <ActionButton
                             accessibilityLabel={`Corregir serie ${setIndex + 1} de ${exerciseName(exercise.exerciseId)}`}
                             disabled={saving}

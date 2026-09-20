@@ -1,11 +1,12 @@
 import { displayLoad, enteredLoad } from "@/application/workouts/load-entry";
 import {
   Check,
+  ArrowLeft,
+  ArrowRight,
+  MessageSquare,
+  Undo2,
   Minus,
-  Pause,
-  Play,
   Plus,
-  RotateCcw,
 } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -24,6 +25,7 @@ import type { ProgramService } from "@/application/programs/program-service";
 import type {
   Technique,
   WorkoutDraft,
+  WorkoutHistoryItem,
   WorkoutService,
 } from "@/application/workouts/workout-service";
 import {
@@ -53,15 +55,11 @@ import {
   type SettingsStore,
   type TrainingSettings,
 } from "@/features/settings/settings";
-import {
-  addTime,
-  pauseTimer,
-  remainingSeconds,
-  resetTimer,
-  startTimer,
-} from "@/features/timer/rest-timer";
+import { resetTimer } from "@/features/timer/rest-timer";
 
 import { deleteLastSet, undoSetDeletion } from "@/application/workouts/set-deletion";
+import { previousRecordedSets } from './previous-performance';
+import { recordingForExercise, validRecordedQuantity } from '@/domain/prescriptions/measurement';
 
 type Props = {
   onClose: () => void;
@@ -151,8 +149,22 @@ export function WorkoutReferenceScreen({
   const navigationLock = useRef(false);
   const completionLock = useRef(false);
   const [replacing, setReplacing] = useState(false);
+  const [replacementError, setReplacementError] = useState('');
   const [showingGuidance, setShowingGuidance] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [savingFinish, setSavingFinish] = useState(false);
+  const finishLock = useRef(false);
+  const [finishError, setFinishError] = useState('');
+  const [noteRows, setNoteRows] = useState<ReadonlySet<string>>(new Set());
+  const [history, setHistory] = useState<readonly WorkoutHistoryItem[]>([]);
+  const [historyError, setHistoryError] = useState(false);
+  useEffect(() => {
+    let live = true;
+    if (workouts?.listHistory) void workouts.listHistory().then(items => {
+      if (live) { setHistory(items); setHistoryError(false); }
+    }).catch(() => { if (live) setHistoryError(true); });
+    return () => { live = false; };
+  }, [workouts]);
   const [skipSetIndex, setSkipSetIndex] = useState<number | null>(null);
   const [skipReason, setSkipReason] = useState("");
   const [skipError, setSkipError] = useState("");
@@ -267,7 +279,7 @@ export function WorkoutReferenceScreen({
   };
   const change = (
     index: number,
-    field: "load" | "reps" | "rir" | "notes",
+    field: "load" | "reps" | "seconds" | "rir" | "notes",
     value: string,
   ) => {
       const current = latestDraftRef.current;
@@ -392,12 +404,50 @@ export function WorkoutReferenceScreen({
     }
   };
   const lastDeletion = draft.setDeletions?.filter((item) => !item.restored).at(-1);
+  const activeSet = Math.min(draft.activeSetIndex ?? 0, Math.max(0, exercise.sets.length - 1));
+  const previousSets = previousRecordedSets(history, exercise.exerciseId, exercise.recording);
+  const timed = exercise.recording === 'seconds';
+  const perSide = exercise.recording === 'reps-per-side';
+  const showLoad = !exercise.recording || exercise.recording === 'load-reps'
+    || (perSide && exercise.exerciseId === 'pallof-press') || exercise.sets.some(set => set.load.trim() !== '');
+  const quantityFields = timed ? ['seconds'] as const : showLoad ? ['load', 'reps'] as const : ['reps'] as const;
+  const selectSet = (index: number) => {
+    if (savingSet || savingOmission || savingDeletion || savingNavigation) return;
+    const current = latestDraftRef.current;
+    if (!current) return;
+    if ((current.activeSetIndex ?? 0) === index) return;
+    const next = { ...current, activeSetIndex: index };
+    latestDraftRef.current = next;
+    setDraft(next);
+  };
+  const completeSetAt = async (index: number, undo = false) => {
+    if (completionLock.current) return;
+    const current = latestDraftRef.current;
+    if (!current) return;
+    completionLock.current = true;
+    setSavingSet(true);
+    try {
+      const next = workouts && !undo
+        ? await workouts.completeSetAndSave(current, exerciseIndex, index)
+        : { ...current, exercises: current.exercises.map((item, itemIndex) => itemIndex !== exerciseIndex ? item : {
+          ...item, sets: item.sets.map((candidate, setIndex) => setIndex !== index ? candidate : {
+            ...candidate, completed: !undo, skipped: false, disposition: undo ? 'PENDING' as const : 'COMPLETED' as const, skipReason: undefined,
+          }),
+        }) };
+      if (undo && workouts) await workouts.saveDraftSnapshot(next);
+      latestDraftRef.current = next;
+      setDraft(next);
+      if (!undo) void playContractedHaptic('setCompleted');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No se pudo guardar la serie. Tu trabajo guardado se conserva.');
+    } finally { completionLock.current = false; setSavingSet(false); }
+  };
   if (deleting) {
     const last = exercise.sets.at(-1)!;
     return <Screen><Panel>
       <AppText accessibilityRole="header" aria-level={1} variant="title">¿Eliminar esta serie?</AppText>
       <AppText>{exerciseName(exercise.exerciseId)} · Serie {exercise.sets.length}</AppText>
-      <AppText>{displayLoad(last, settings.units) || "Sin carga"} {last.load ? settings.units : ""} × {last.reps} · {last.disposition === "COMPLETED" ? "Completada" : last.disposition === "SKIPPED" ? "Omitida" : "Pendiente"}</AppText>
+      <AppText>{timed ? `${last.seconds} s` : `${displayLoad(last, settings.units) || "Sin carga"} ${last.load ? settings.units : ""} × ${last.reps}${perSide ? ' por lado' : ''}`} · {last.disposition === "COMPLETED" ? "Completada" : last.disposition === "SKIPPED" ? "Omitida" : "Pendiente"}</AppText>
       {last.notes ? <AppText>{last.notes}</AppText> : null}
       {last.skipReason ? <AppText>{last.skipReason}</AppText> : null}
       <AppText>Podrás deshacer la eliminación, incluso al volver a abrir este entrenamiento.</AppText>
@@ -408,7 +458,6 @@ export function WorkoutReferenceScreen({
     </Panel></Screen>;
   }
   const timer = draft.timer ?? resetTimer();
-  const seconds = remainingSeconds(timer, now || timer.runningSince || 0);
   const updateTimer = (next: typeof timer) => {
     setNow(next.runningSince ?? 0);
     setDraft((current) => current && { ...current, timer: next });
@@ -436,24 +485,32 @@ export function WorkoutReferenceScreen({
             {pending === 1 ? "" : "s"}
           </AppText>
           <AppText color="muted">
-            Confirma para guardar una sesión inmutable en este dispositivo.
+            {pending ? 'Las series pendientes se conservarán como pendientes, sin marcarlas completadas ni omitidas.' : 'Confirma para guardar una sesión inmutable en este dispositivo.'}
           </AppText>
+          {finishError ? <AppText accessibilityRole="alert" color="danger">{finishError}</AppText> : null}
           <ActionButton
             accessibilityLabel="Confirmar fin de entrenamiento"
-            onPress={() => {
-              if (!workouts) {
+            busy={savingFinish}
+            onPress={async () => {
+              if (finishLock.current) return;
+              finishLock.current = true;
+              setSavingFinish(true);
+              setFinishError('');
+              try {
+                if (workouts) {
+                  const current = latestDraftRef.current ?? draft;
+                  await workouts.saveDraftSnapshot(current);
+                  await workouts.complete(current, { finishEarly: pending > 0 });
+                }
                 onClose();
-                return;
-              }
-              void workouts
-                .complete(draft)
-                .then(onClose)
-                .catch(() => setError("No se pudo terminar la sesión"));
+              } catch {
+                setFinishError('No se pudo terminar la sesión. Tu registro sigue disponible; vuelve a intentar o sigue entrenando.');
+              } finally { finishLock.current = false; setSavingFinish(false); }
             }}
           >
             Confirmar y terminar
           </ActionButton>
-          <ActionButton onPress={() => setFinishing(false)} tone="secondary">
+          <ActionButton disabled={savingFinish} onPress={() => setFinishing(false)} tone="secondary">
             Seguir entrenando
           </ActionButton>
         </Panel>
@@ -462,12 +519,13 @@ export function WorkoutReferenceScreen({
   }
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior="padding"
+      enabled={Platform.OS === 'ios'}
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
-      <View collapsable={false} style={styles.flex} pointerEvents={savingOmission || savingDeletion || savingNavigation ? "none" : "auto"}>
-      <Screen scrollRef={scrollRef} testID="workout-screen">
+      <View collapsable={false} style={styles.flex} pointerEvents={savingOmission || savingDeletion || savingNavigation || savingSet ? "none" : "auto"}>
+      <View style={styles.flex}>
         <View collapsable={false} style={{ display: navigationError || savingNavigation ? "flex" : "none" }} testID="workout-navigation-feedback">
         {navigationError ? <AppText accessibilityRole="alert" color="danger">{navigationError}</AppText> : null}
         {savingNavigation ? <AppText accessibilityLiveRegion="polite">Guardando antes de salir…</AppText> : null}
@@ -478,11 +536,12 @@ export function WorkoutReferenceScreen({
           {deletionError ? <AppText accessibilityRole="alert">{deletionError}</AppText> : null}
         </Panel> : null}
         <WorkoutFrame
+          scrollRef={scrollRef}
           commands={
-            <>
-              <View style={styles.between}>
-                <ActionButton
+              <View style={styles.commands}>
+                <IconButton
                   accessibilityLabel="Ejercicio anterior"
+                  icon={ArrowLeft}
                   disabled={savingSet || savingNavigation || exerciseIndex === 0}
                   onPress={() =>
                     setExerciseIndex((index) => {
@@ -492,17 +551,15 @@ export function WorkoutReferenceScreen({
                       const next = Math.max(0, index - 1);
                       setDraft(
                         (current) =>
-                          current && { ...current, activeExerciseIndex: next },
+                          current && { ...current, activeExerciseIndex: next, activeSetIndex: 0 },
                       );
                       return next;
                     })
                   }
-                  tone="secondary"
-                >
-                  Anterior
-                </ActionButton>
-                <ActionButton
+                />
+                <IconButton
                   accessibilityLabel="Siguiente ejercicio"
+                  icon={ArrowRight}
                   disabled={savingSet || savingNavigation || exerciseIndex === draft.exercises.length - 1}
                   onPress={() =>
                     setExerciseIndex((index) => {
@@ -515,35 +572,26 @@ export function WorkoutReferenceScreen({
                       );
                       setDraft(
                         (current) =>
-                          current && { ...current, activeExerciseIndex: next },
+                          current && { ...current, activeExerciseIndex: next, activeSetIndex: 0 },
                       );
                       return next;
                     })
                   }
-                  tone="secondary"
-                >
-                  Siguiente
-                </ActionButton>
-              </View>
+                />
+              <View style={styles.flex}>
               <ActionButton
                 accessibilityLabel="Revisar y terminar entrenamiento"
                 disabled={
-                  Object.keys(invalidLoads).length > 0 || (workouts
-                    ? !workouts.canComplete(draft)
-                    : !draft.exercises.every((item) =>
-                        item.sets.every((set) => set.disposition !== "PENDING"),
-                      ))
+                  savingSet || savingNavigation || savingOmission || savingDeletion || Object.keys(invalidLoads).length > 0 || (workouts
+                    ? !(workouts.canComplete(draft) || workouts.canFinishEarly?.(draft))
+                    : !draft.exercises.some(item => item.sets.some(set => set.disposition === 'COMPLETED')))
                 }
                 icon={Check}
-                onPress={() => setFinishing(true)}
+                onPress={() => { setFinishError(''); setFinishing(true); }}
               >
-                Revisar y terminar
+                Terminar
               </ActionButton>
-              <AppText color="muted" variant="caption">
-                Completa u omite explícitamente cada serie. Tus datos permanecen
-                en este dispositivo.
-              </AppText>
-            </>
+              </View></View>
           }
           current={exerciseIndex + 1}
           exerciseName={guidance?.name ?? "Ejercicio no disponible en el catálogo"}
@@ -600,15 +648,16 @@ export function WorkoutReferenceScreen({
               </ActionButton>
             </Panel>
           ) : null}
+          {replacementError ? <AppText accessibilityRole="alert">{replacementError}</AppText> : null}
           {guidance && replacing ? (
             <ReplacementSheet
               exerciseId={exercise.exerciseId}
               requirement={exercise.requirement}
               onCancel={() => setReplacing(false)}
               onConfirm={(selected, reason) => {
-                setDraft((current) => {
-                  if (!current) return null;
-                  return workouts
+                const current = latestDraftRef.current ?? draft;
+                try {
+                  setDraft(workouts
                     ? workouts.replaceExercise(
                         current,
                         exerciseIndex,
@@ -623,14 +672,19 @@ export function WorkoutReferenceScreen({
                             : {
                                 ...item,
                                 exerciseId: selected.id,
+                                ...(item.recording ? { recording: recordingForExercise(selected.id) } : {}),
                                 replacement: {
                                   fromExerciseId: item.exerciseId,
                                   reason,
                                 },
                               },
                         ),
-                      };
-                });
+                      });
+                } catch (cause) {
+                  setReplacementError(cause instanceof Error ? cause.message : 'No se pudo cambiar el ejercicio. El registro se conserva.');
+                  return;
+                }
+                setReplacementError('');
                 setReplacing(false);
                 setShowingGuidance(false);
               }}
@@ -642,6 +696,7 @@ export function WorkoutReferenceScreen({
               onPress={async () => {
                 try {
                   if (settingsStore) setSettings(await settingsStore.load());
+                  setReplacementError('');
                   setReplacing(true);
                 } catch { setError("No se pudieron cargar las preferencias. Vuelve a intentar abrir las alternativas."); }
               }}
@@ -663,67 +718,6 @@ export function WorkoutReferenceScreen({
               </Panel>
             </View>
           ) : null}
-          <Panel>
-            <Tag>OBJETIVOS PREFILLADOS</Tag>
-            <AppText color="muted">
-              Edita carga, repeticiones y RIR. Los cambios quedan guardados sin
-              conexión.
-            </AppText>
-          </Panel>
-          <RestDock>
-            <View style={styles.between}>
-              <View>
-                <Tag>DESCANSO</Tag>
-                <AppText
-                  accessibilityLabel={`Temporizador ${seconds} segundos`}
-                  variant="title"
-                >
-                  {String(Math.floor(seconds / 60)).padStart(2, "0")}:
-                  {String(seconds % 60).padStart(2, "0")}
-                </AppText>
-              </View>
-              <View style={styles.commands}>
-                {timer.runningSince === null ? (
-                  <IconButton
-                    accessibilityLabel="Iniciar temporizador"
-                    icon={Play}
-                    onPress={() =>
-                      updateTimer(startTimer(seconds || 90, Date.now()))
-                    }
-                  />
-                ) : (
-                  <IconButton
-                    accessibilityLabel="Pausar temporizador"
-                    icon={Pause}
-                    onPress={() => updateTimer(pauseTimer(timer, Date.now()))}
-                  />
-                )}
-                <IconButton
-                  accessibilityLabel="Añadir 30 segundos"
-                  icon={Plus}
-                  onPress={() => updateTimer(addTime(timer, 30, Date.now()))}
-                />
-                <IconButton
-                  accessibilityLabel="Reiniciar temporizador"
-                  icon={RotateCcw}
-                  onPress={() => updateTimer(resetTimer())}
-                />
-              </View>
-            </View>
-            <View style={styles.commands}>
-              {[60, 90, 120].map((preset) => (
-                <Pressable
-                  accessibilityLabel={`Descanso ${preset} segundos`}
-                  key={preset}
-                  onPress={() => updateTimer(startTimer(preset, Date.now()))}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [styles.preset, { borderColor: theme.textMuted, borderWidth: pressed ? 2 : 1, backgroundColor: theme.surface }]}
-                >
-                  <AppText>{preset}s</AppText>
-                </Pressable>
-              ))}
-            </View>
-          </RestDock>
           <View style={styles.between}>
             <AppText
               accessibilityRole="header"
@@ -748,24 +742,39 @@ export function WorkoutReferenceScreen({
           {Object.keys(invalidLoads).length > 0 ? <AppText accessibilityRole="alert">Escribe una carga válida, sin valores negativos. Tu carga guardada se conserva.</AppText> : null}
           {exercise.sets.map((set, index) => (
             <SetEntryRow key={index}>
-              <AppText variant="bodyStrong">Serie {index + 1}</AppText>
               <View style={styles.fields}>
-                {(["load", "reps", "rir"] as const).map((field) => (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Editar serie ${index + 1}`} accessibilityState={{ expanded: activeSet === index }} onPress={() => selectSet(index)} style={{ minWidth: 36, minHeight: 48, justifyContent: 'center' }}>
+                  <AppText variant="bodyStrong">{String(index + 1).padStart(2, '0')}</AppText>
+                </Pressable>
+                {quantityFields.map((field) => (
                   <SetField
                     key={field}
-                    label={`${field === "load" ? "Carga" : field === "reps" ? "Repeticiones" : "RIR"} de la serie ${index + 1}`}
+                    label={`${field === 'seconds' ? 'Segundos' : field === "load" ? "Carga" : "Repeticiones"} de la serie ${index + 1}`}
                     visibleLabel={
                       field === "load"
                         ? `Carga (${settings.units})`
-                        : field === "reps"
-                          ? "Reps"
-                          : "RIR"
+                        : field === 'seconds' ? 'Segundos' : perSide ? 'Reps / lado' : "Reps"
                     }
-                    value={field === "load" ? invalidLoads[`${exerciseIndex}:${index}`] ?? displayLoad(set, settings.units) : set[field]}
+                    value={field === "load" ? invalidLoads[`${exerciseIndex}:${index}`] ?? displayLoad(set, settings.units) : set[field] ?? ''}
+                    disabled={savingSet}
                     onChangeText={(value) => change(index, field, value)}
+                    onFocus={() => selectSet(index)}
                   />
                 ))}
+                <View style={{ justifyContent: 'flex-end' }}><IconButton
+                  accessibilityLabel={`Completar serie ${index + 1}`} icon={Check}
+                  selected={set.disposition === 'COMPLETED'}
+                  disabled={set.pain >= 5 || savingSet || Object.keys(invalidLoads).length > 0 || !validRecordedQuantity(exercise.recording, set)}
+                  onPress={() => void completeSetAt(index)}
+                /></View>
               </View>
+              <AppText color="muted" variant="caption">Anterior: {historyError ? 'no disponible' : previousSets[index]
+                ? timed ? `${previousSets[index]!.seconds} s`
+                  : `${showLoad ? `${displayLoad(previousSets[index]!, settings.units) || 'Sin carga'}${previousSets[index]!.load ? ` ${settings.units}` : ''} × ` : ''}${previousSets[index]!.reps} reps${perSide ? ' / lado' : ''}` : 'sin registro'}</AppText>
+              {set.pain > 0 && activeSet !== index ? <AppText accessibilityRole="alert">Molestia registrada: {set.pain}/10</AppText> : null}
+              {activeSet === index ? <>
+              {set.disposition === 'COMPLETED' ? <IconButton accessibilityLabel={`Deshacer completado de la serie ${index + 1}`} icon={Undo2} disabled={savingSet} onPress={() => void completeSetAt(index, true)} /> : null}
+              <SetField disabled={savingSet} label={`RIR de la serie ${index + 1}`} visibleLabel="RIR" value={set.rir} onChangeText={value => change(index, 'rir', value)} />
               <View
                 accessibilityRole="radiogroup"
                 style={[
@@ -816,9 +825,11 @@ export function WorkoutReferenceScreen({
                   />
                 </View>
               </View>
-              <TextInput
+              <IconButton accessibilityLabel={`Mostrar notas de la serie ${index + 1}`} icon={MessageSquare} onPress={() => setNoteRows(current => new Set([...current, `${exerciseIndex}:${index}`]))} />
+              {noteRows.has(`${exerciseIndex}:${index}`) || set.notes.length > 0 ? <TextInput
                 accessibilityLabel={`Notas de la serie ${index + 1}`}
                 multiline
+                editable={!savingSet}
                 onChangeText={(value) => change(index, "notes", value)}
                 placeholder="Notas opcionales"
                 placeholderTextColor={theme.textMuted}
@@ -827,39 +838,10 @@ export function WorkoutReferenceScreen({
                   { backgroundColor: theme.surface, borderColor: theme.textMuted, color: theme.text },
                 ]}
                 value={set.notes}
-              />
+              /> : null}
+              </> : null}
               <View style={styles.commands}>
-                <ActionButton
-                  accessibilityLabel={`Completar serie ${index + 1}`}
-                  busy={savingSet}
-                  disabled={set.pain >= 5 || savingSet || Object.keys(invalidLoads).length > 0}
-                  onPress={async () => {
-                    if (completionLock.current) return;
-                    const current = latestDraftRef.current;
-                    if (!current) return;
-                    completionLock.current = true;
-                    setSavingSet(true);
-                    try {
-                      const next = workouts
-                        ? await workouts.completeSetAndSave(current, exerciseIndex, index)
-                        : { ...current, exercises: current.exercises.map((item, itemIndex) => itemIndex !== exerciseIndex ? item : {
-                          ...item, sets: item.sets.map((candidate, setIndex) => setIndex !== index ? candidate : {
-                            ...candidate, completed: true, skipped: false, disposition: 'COMPLETED' as const, skipReason: undefined,
-                          }),
-                        }) };
-                      latestDraftRef.current = next;
-                      setDraft(next);
-                      void playContractedHaptic("setCompleted");
-                    } catch (reason) {
-                      setError(reason instanceof Error ? reason.message : "No se pudo guardar la serie. Tu trabajo guardado se conserva.");
-                    } finally { completionLock.current = false; setSavingSet(false); }
-                  }}
-                  tone={
-                    set.disposition === "COMPLETED" ? "primary" : "secondary"
-                  }
-                >
-                  {savingSet ? "Guardando…" : "Completar"}
-                </ActionButton>
+                {activeSet === index ?
                 <ActionButton
                   accessibilityLabel={`Omitir serie ${index + 1}`}
                   disabled={set.completed || savingOmission}
@@ -872,7 +854,7 @@ export function WorkoutReferenceScreen({
                   tone={set.disposition === "SKIPPED" ? "primary" : "secondary"}
                 >
                   Omitir
-                </ActionButton>
+                </ActionButton> : null}
                 {set.disposition !== "PENDING" ? (
                   <Tag>
                     {set.disposition === "COMPLETED" ? "COMPLETADA" : "OMITIDA"}
@@ -958,8 +940,9 @@ export function WorkoutReferenceScreen({
               ) : null}
             </SetEntryRow>
           ))}
+          <RestDock timer={timer} now={now} onChange={updateTimer} />
         </WorkoutFrame>
-      </Screen>
+      </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -970,11 +953,15 @@ function SetField({
   visibleLabel,
   value,
   onChangeText,
+  onFocus,
+  disabled = false,
 }: {
   label: string;
   visibleLabel: string;
   value: string;
   onChangeText: (value: string) => void;
+  onFocus?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={styles.flex}>
@@ -984,7 +971,9 @@ function SetField({
         keyboardType="decimal-pad"
         maxFontSizeMultiplier={1.4}
         onChangeText={onChangeText}
+        onFocus={onFocus}
         value={value}
+        editable={!disabled}
       />
     </View>
   );

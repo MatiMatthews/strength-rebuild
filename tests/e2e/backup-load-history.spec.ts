@@ -15,6 +15,8 @@ test('restores mixed load history and an active workout, rejecting invalid corre
  const actual=JSON.parse(String(row.actual_snapshot_json));
  actual.exercises[0].exerciseId='barbell-bench-press';actual.exercises[0].originalExerciseId='barbell-bench-press';
  actual.exercises=[actual.exercises[0]];
+ delete actual.exercises[0].recording;
+ for(const set of actual.exercises[0].sets) delete set.seconds;
  actual.exercises[0].sets[0].load='100';actual.exercises[0].sets[0].reps='8';actual.exercises[0].sets[0].completed=true;actual.exercises[0].sets[0].disposition='COMPLETED';
  const prescribed={dayIndex:1,exercises:[{exerciseId:'barbell-bench-press',calculatedLoad:100,loadProvenance:'bench press reference 200 lb; training max reference; 50%; rounded to 5',target:{sets:2}}]};
  db.prepare('UPDATE workout_session SET prescribed_snapshot_json=?, actual_snapshot_json=?').run(JSON.stringify(prescribed),JSON.stringify(actual));

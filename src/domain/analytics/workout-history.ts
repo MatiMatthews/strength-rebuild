@@ -18,6 +18,7 @@ export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plan
   let totalVolume = 0;
   let completedSetCount = 0;
   let skippedSetCount = 0;
+  let pendingSetCount = 0;
 
   for (const session of sessions) {
     for (const exercise of session.actual.exercises) {
@@ -26,7 +27,7 @@ export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plan
       for (const set of exercise.sets) {
         const completed = set.disposition === 'COMPLETED' || (set.disposition === undefined && set.completed !== false && !set.skipped);
         if (set.disposition === 'SKIPPED' || set.skipped) { skippedSetCount += 1; continue; }
-        if (!completed) continue;
+        if (!completed) { pendingSetCount += 1; continue; }
         completedSetCount += 1;
         const load = number(set.load); const reps = number(set.reps); const volume = load * reps;
         totalVolume += volume; current.volume += volume; sessionBest = Math.max(sessionBest, e1rm(load, reps));
@@ -43,9 +44,10 @@ export function buildHistoryAnalytics(items: readonly WorkoutHistoryItem[], plan
   return {
     sessions,
     totalVolume,
-    adherence: completedSetCount + skippedSetCount > 0 ? completedSetCount / (completedSetCount + skippedSetCount) : 0,
+    adherence: completedSetCount + skippedSetCount + pendingSetCount > 0 ? completedSetCount / (completedSetCount + skippedSetCount + pendingSetCount) : 0,
     completedSetCount,
     skippedSetCount,
+    pendingSetCount,
     exercises: [...exerciseMap].map(([exerciseId, value]) => ({ exerciseId, totalVolume: value.volume, bestE1rm: Math.round(value.best * 10) / 10, latestPain: value.pain, points: value.points })),
     corrections,
     symptomDisclaimer: 'Las tendencias de molestias son solo un registro personal; no es un diagnóstico ni una indicación médica.',

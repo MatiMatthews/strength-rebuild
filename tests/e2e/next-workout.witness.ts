@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
-import { isLastWorkoutExercise, startSyntheticWorkout } from './setup';
+import { isLastWorkoutExercise, startSyntheticWorkout, fillSetQuantity } from './setup';
 import { readPersistence } from './persistence';
 
 // Complete the first session through production controls and independently read SQLite.
@@ -10,8 +10,7 @@ test('finishing the first session permits preparing the next workout', async ({ 
     const count = await page.getByTestId('set-entry-row').count();
     expect(count).toBeGreaterThan(0);
     for (let set = 1; set <= count; set += 1) {
-      await page.getByLabel(`Carga de la serie ${set}`, { exact: true }).fill('0');
-      await page.getByLabel(`Repeticiones de la serie ${set}`, { exact: true }).fill('8');
+      await fillSetQuantity(page, set);
       await page.getByRole('button', { name: `Completar serie ${set}`, exact: true }).click();
     }
     const next = page.getByRole('button', { name: 'Siguiente ejercicio', exact: true });
