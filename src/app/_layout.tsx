@@ -47,15 +47,15 @@ function RootContent() {
       >
         <RepositoryProvider>
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.canvas }}>
+            <DemoBanner />
             <SafeAreaProvider>
-              <StatusBar style={theme.dark ? 'light' : 'dark'} />
-              <DemoBanner />
+              <StatusBar style={mode === 'demo' ? 'dark' : theme.dark ? 'light' : 'dark'} />
               <Stack
                 screenOptions={{
                   animation: 'slide_from_right',
                   contentStyle: { backgroundColor: theme.canvas },
                   headerShown: false,
-                  statusBarStyle: theme.dark ? 'light' : 'dark',
+                  statusBarStyle: mode === 'demo' ? 'dark' : theme.dark ? 'light' : 'dark',
                 }}
               >
                 <Stack.Screen name="(tabs)" />
