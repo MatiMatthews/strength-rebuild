@@ -519,8 +519,7 @@ export function WorkoutReferenceScreen({
   }
   return (
     <KeyboardAvoidingView
-      behavior="padding"
-      enabled={Platform.OS === 'ios'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
@@ -1002,7 +1001,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: spacing.sm,
   },
-  fields: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  fields: { alignItems: 'flex-end', flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   flex: { flex: 1 },
   notes: {
     borderRadius: radii.control,

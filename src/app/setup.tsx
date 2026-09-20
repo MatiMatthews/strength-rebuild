@@ -15,6 +15,7 @@ import { catalogEquipment, equipmentLabels, normalizeEquipment, requirementKinds
 import { DemoControls } from '@/features/demo/DemoModeProvider';
 import { referenceKeys, referenceLabels } from '@/features/settings/reference-draft';
 import { FirstUseConflictError, FirstUseService, FirstUseValidationError, type FirstUseDraft } from '@/features/setup/first-use';
+import { prescriptionQuantity } from '@/domain/prescriptions/measurement';
 
 const titles = ['Tu objetivo', 'Tus tres días', 'Tu gimnasio', 'Tus referencias', 'Tu plan está listo'];
 const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -161,7 +162,7 @@ export default function SetupRoute() {
                 <ActionButton tone="secondary" onPress={() => setExpanded(expanded === `${cycle.id}-${index}` ? null : `${cycle.id}-${index}`)}>{`${days[session.dayIndex - 1]} · ${session.exercises.length} ejercicios`}</ActionButton>
                 {expanded === `${cycle.id}-${index}` ? session.exercises.map((exercise, i) => <View key={i} style={styles.exercise}>
                   <AppText variant="bodyStrong">{exerciseCatalog.find(item => item.id === exercise.exerciseId)?.name}</AppText>
-                  <AppText color="muted">{exercise.target.sets} × {exercise.target.reps.min}-{exercise.target.reps.max} · {exercise.calculatedLoad === undefined ? 'Carga por definir' : `${exercise.calculatedLoad} ${exercise.loadUnit}`} · RIR {exercise.target.rir.min}-{exercise.target.rir.max}</AppText>
+                  <AppText color="muted">{prescriptionQuantity(exercise)} · {exercise.calculatedLoad === undefined ? 'Carga por definir' : `${exercise.calculatedLoad} ${exercise.loadUnit}`} · RIR {exercise.target.rir.min}-{exercise.target.rir.max}</AppText>
                 </View>) : null}
               </View>)}
             </View>)}
