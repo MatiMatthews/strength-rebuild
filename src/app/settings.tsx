@@ -7,6 +7,7 @@ import { ActionButton, AppText, Screen } from '@/design-system/v2.2/primitives';
 import { AppMasthead } from '@/design-system/v2.2/components';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { createSettingsStore } from '@/features/settings/settings-store';
+import { DemoControls } from '@/features/demo/DemoModeProvider';
 
 export default function SettingsRoute() {
   const navigation = useNavigation();
@@ -26,6 +27,7 @@ export default function SettingsRoute() {
 
   return <Screen testID="settings-screen">
     <AppMasthead context="Preferencias locales y sin conexión" title="Configuración" />
+    <DemoControls />
     <View accessibilityRole="header" aria-level={2} ref={headingRef} tabIndex={-1}>
       <AppText variant="heading">Preferencias de entrenamiento</AppText>
     </View>
