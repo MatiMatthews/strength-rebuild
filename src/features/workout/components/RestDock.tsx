@@ -1,4 +1,4 @@
-import { Pressable, Switch, View } from 'react-native';
+import { Platform, Pressable, Switch, View } from 'react-native';
 import { Pause, Play, Plus, RotateCcw } from 'lucide-react-native';
 import { AppText, IconButton, Panel } from '@/design-system/v2.2/primitives';
 import { useAppTheme } from '@/design-system/use-app-theme';
@@ -10,7 +10,7 @@ export function RestDock({ timer, now, onChange, autoStart = false, onAutoStartC
   const theme = useAppTheme();
   const seconds = remainingSeconds(timer, now || timer.runningSince || 0);
   return <View testID="rest-dock"><Panel>
-    {onAutoStartChange ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}><AppText style={{ flex: 1 }}>Descanso automático</AppText><Switch accessibilityLabel="Descanso automático al completar una serie" value={autoStart} onValueChange={onAutoStartChange} trackColor={{ false: theme.border, true: theme.textMuted }} /></View> : null}
+    {onAutoStartChange ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 }}><AppText style={{ flex: 1 }}>Descanso automático</AppText><Switch accessibilityLabel="Descanso automático al completar una serie" value={autoStart} onValueChange={onAutoStartChange} trackColor={{ false: theme.textMuted, true: theme.text }} thumbColor={theme.surface} {...(Platform.OS === 'web' ? { activeThumbColor: theme.surface } : {})} /></View> : null}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm }}>
       <View><AppText color="muted" variant="caption">DESCANSO</AppText><AppText accessibilityLabel={`Temporizador ${seconds} segundos`} style={{ fontVariant: ['tabular-nums'] }} variant="title">{String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}</AppText></View>
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
