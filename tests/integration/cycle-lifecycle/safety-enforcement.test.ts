@@ -88,7 +88,9 @@ it('permits supported low-demand work and rejects power or unverifiable loading 
   const completed = await f.service.completeSetAndSave(resumed,0,1);
   const before = f.read();
   await expect(f.service.saveDraftSnapshot(f.service.recordSet(completed,0,1,{load:'100'}))).rejects.toThrow('requiere revisión');
-  await expect(f.service.saveDraftSnapshot(f.service.replaceExercise(completed,0,'low-volume-jump','boredom'))).rejects.toThrow('requiere revisión');
+  expect(() => f.service.replaceExercise(completed,0,'low-volume-jump','boredom')).toThrow('requiere revisión');
+  const validJump = { ...completed, exercises: [{ ...completed.exercises[0]!, exerciseId: 'low-volume-jump', recording: 'bodyweight-reps' as const, sets: completed.exercises[0]!.sets.map(set => ({ ...set, reps: '3' })) }] };
+  await expect(f.service.saveDraftSnapshot(validJump)).rejects.toThrow('requiere revisión');
   expect(f.read()).toEqual(before);
   await f.service.save(completed);
   expect((await new WorkoutService(f.db).startOrResume(f.today)).exercises[0]!.sets[1]!.completed).toBe(true);

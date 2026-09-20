@@ -1,4 +1,5 @@
 import { LegacyReferencePreview } from './LegacyReferencePreview';
+import { prescriptionQuantity } from '@/domain/prescriptions/measurement';
 import type { ProgramService, InvalidSessionReference, CycleLifecycle } from '@/application/programs/program-service';
 import { InsufficientWorkoutError } from '@/domain/prescriptions/generator';
 import { CatalogRequirementError } from '@/domain/prescriptions/catalog-requirements';
@@ -192,7 +193,7 @@ export function PlanReferenceScreen({ focused = true, onOpenBackup, onOpenSettin
                     {block.exercises.map((exercise, index) => <View key={`${exercise.exerciseId}-${index}`}>
                       <AppText style={{ color: rowText }} variant="bodyStrong">{exerciseCatalog.find(({ id }) => id === exercise.exerciseId)?.name ?? `Ejercicio no disponible: ${exercise.exerciseId}`}</AppText>
                       {exercise.target ? <>
-                        <AppText style={{ color: rowMuted }} variant="caption">{exercise.target.sets} series · {exercise.target.reps.min}–{exercise.target.reps.max} repeticiones · RIR {exercise.target.rir.min}–{exercise.target.rir.max}</AppText>
+                        <AppText style={{ color: rowMuted }} variant="caption">{prescriptionQuantity(exercise)} · RIR {exercise.target.rir.min}–{exercise.target.rir.max}</AppText>
                         <AppText style={{ color: rowMuted }} variant="caption">{exercise.calculatedLoad !== undefined ? `${exercise.calculatedLoad} ${exercise.loadProvenance?.match(/\b(kg|lb);/)?.[1] ?? '(unidad no registrada)'}` : 'Carga por definir'}</AppText>
                       </> : <AppText style={{ color: rowMuted }} variant="caption">Prescripción no disponible</AppText>}
                     </View>)}

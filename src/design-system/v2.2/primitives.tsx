@@ -60,10 +60,12 @@ type ScreenProps = PropsWithChildren<{
   footer?: ReactNode;
   scroll?: boolean;
   scrollRef?: RefObject<ScrollView | null>;
+  innerScrollRef?: RefObject<View>;
+  onScrollLayout?: () => void;
   testID?: string;
 }>;
 
-export function Screen({ children, footer, scroll = true, scrollRef, testID }: ScreenProps) {
+export function Screen({ children, footer, scroll = true, scrollRef, innerScrollRef, onScrollLayout, testID }: ScreenProps) {
   const theme = useAppTheme();
   const content = (
     <View style={styles.content} testID={testID}>
@@ -78,6 +80,8 @@ export function Screen({ children, footer, scroll = true, scrollRef, testID }: S
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           ref={scrollRef}
+          innerViewRef={innerScrollRef}
+          onLayout={onScrollLayout}
           showsVerticalScrollIndicator={false}
           style={styles.scroll}
         >

@@ -9,6 +9,9 @@ function TestIcon({ size = 24 }: IconProps) {
 }
 
 export const ArrowRight = TestIcon;
+export const ArrowLeft = TestIcon;
+export const MessageSquare = TestIcon;
+export const Undo2 = TestIcon;
 export const BarChart3 = TestIcon;
 export const CalendarCheck2 = TestIcon;
 export const CalendarDays = TestIcon;

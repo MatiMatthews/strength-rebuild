@@ -37,6 +37,7 @@ describe('full persisted cycle lifecycle', () => {
     await workouts.applyReadiness(today, { pain: 0, painTrend: 'stable', region: 'other', reproducedByBraceCoughOrSneeze: false });
     let draft = await workouts.startOrResume(today);
     draft = workouts.replaceExercise(draft, 0, replacements[0]!.exercise.id, 'equipment-unavailable');
+    for (let setIndex = 0; setIndex < draft.exercises[0]!.sets.length; setIndex++) draft = workouts.recordSet(draft, 0, setIndex, { reps: '8' });
     draft = draft.exercises.reduce((current, exercise, exerciseIndex) => exercise.sets.reduce((setsDraft, _set, setIndex) => workouts.completeSet(setsDraft, exerciseIndex, setIndex), current), draft);
     await workouts.complete(draft);
     const historyBefore = await workouts.listHistory();

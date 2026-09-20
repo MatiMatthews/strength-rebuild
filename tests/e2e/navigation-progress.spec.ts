@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type TestInfo } from '@playwright/test';
 import { navigationContrast, progressContrast } from './navigation-contrast';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, fillSetQuantity, openSetNotes } from './setup';
 import { readPersistence } from './persistence';
 
 async function boundary(locator: Locator, edge: 'Top' | 'Bottom', info: TestInfo) {
@@ -42,11 +42,10 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} navig
   }
   await boundary(page.getByTestId('workout-command-bar'), 'Top', info);
   await navigationContrast(page.getByRole('button', { name: 'Ejercicio anterior', exact: true }), info, 'disabled-previous');
-  await page.getByLabel('Carga de la serie 1', { exact: true }).fill('0');
-  await page.getByLabel('Repeticiones de la serie 1', { exact: true }).fill('8');
-  await page.getByLabel('Notas de la serie 1', { exact: true }).fill('Synthetic persistence smoke');
+  await fillSetQuantity(page, 1);
+  await (await openSetNotes(page, 1)).fill('Synthetic persistence smoke');
   await page.getByRole('button', { name: 'Completar serie 1', exact: true }).click();
-  await expect.poll(async () => (await readPersistence(page, info)).sets).toEqual([{ load: '0', reps: '8', notes: 'Synthetic persistence smoke', disposition: 'COMPLETED' }]);
+  await expect.poll(async () => (await readPersistence(page, info)).sets).toEqual([{ load: '', reps: '', notes: 'Synthetic persistence smoke', disposition: 'COMPLETED' }]);
   let saved = await readPersistence(page, info);
   await progressContrast(page.getByTestId('workout-sequence-rail'), info, 'exercise-progress');
   await expect(page.getByTestId('workout-sequence-rail')).toHaveAttribute('aria-valuemax', String(JSON.parse(String(saved.workouts[0]!.actual_snapshot_json)).exercises.length));

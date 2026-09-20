@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { startSyntheticWorkout } from './setup';
+import { startSyntheticWorkout, openBenchPress } from './setup';
 import { readPersistence } from './persistence';
 
 for (const fault of ['delayed preparation', 'lost write acknowledgement'] as const) test(`SQLite ${fault} recovers without losing a set edit`, async ({ page }, info) => {
@@ -20,6 +20,7 @@ for (const fault of ['delayed preparation', 'lost write acknowledgement'] as con
     };
   }, fault);
   await startSyntheticWorkout(page);
+  await openBenchPress(page);
   await page.evaluate(() => { (window as unknown as { delayNextPreparation: boolean }).delayNextPreparation = true; });
   await page.getByLabel('Carga de la serie 1', { exact: true }).fill('20');
   await page.getByLabel('Carga de la serie 1', { exact: true }).fill('25');
@@ -28,7 +29,7 @@ for (const fault of ['delayed preparation', 'lost write acknowledgement'] as con
   await expect(page.getByText('COMPLETADA', { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const persisted = await readPersistence(page, info);
-    return JSON.parse(String(persisted.workouts[0]!.actual_snapshot_json)).exercises[0].sets[0];
+    return JSON.parse(String(persisted.workouts[0]!.actual_snapshot_json)).exercises.find((exercise: { exerciseId: string }) => exercise.exerciseId === 'barbell-bench-press').sets[0];
   }).toMatchObject({ load: '25', reps: '8', disposition: 'COMPLETED' });
   expect(await page.evaluate(() => (window as unknown as { delayNextPreparation: boolean }).delayNextPreparation)).toBe(false);
   await page.reload();

@@ -54,6 +54,7 @@ for(const [failure,choice] of [['omitted','ACCEPTED'],['missed','ACCEPTED'],['ef
    await app.getByRole('button',{name:'Completar serie 1',exact:true}).click();
    if(failure==='omitted') {
     if(day===2 && e===0) {
+     await app.getByRole('button',{name:'Editar serie 2',exact:true}).click();
      await app.getByRole('button',{name:'Omitir serie 2',exact:true}).click();
      await app.getByLabel('Motivo para omitir la serie 2',{exact:true}).fill('Tiempo insuficiente');
      await app.getByRole('button',{name:'Confirmar omisión de la serie 2',exact:true}).click();
