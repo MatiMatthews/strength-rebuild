@@ -49,19 +49,21 @@ import {
 } from "@/features/exercises/ReplacementSheet";
 import { WorkoutFrame } from "@/features/workout/components/WorkoutFrame";
 import { RestDock } from "@/features/workout/components/RestDock";
+import { MiniRestTimer } from "@/features/workout/components/MiniRestTimer";
 import { SetEntryRow } from "@/features/workout/components/SetEntryRow";
 import {
   defaultSettings,
   type SettingsStore,
   type TrainingSettings,
 } from "@/features/settings/settings";
-import { resetTimer } from "@/features/timer/rest-timer";
+import { resetTimer, restAfterCompletion } from "@/features/timer/rest-timer";
 
 import { deleteLastSet, undoSetDeletion } from "@/application/workouts/set-deletion";
 import { previousRecordedSets } from './previous-performance';
 import { recordingForExercise, validRecordedQuantity } from '@/domain/prescriptions/measurement';
 
 type Props = {
+  focused?: boolean;
   onClose: () => void;
   programs?: ProgramService;
   workouts?: WorkoutService;
@@ -130,6 +132,7 @@ const preview: WorkoutDraft = {
 };
 
 export function WorkoutReferenceScreen({
+  focused = true,
   onClose,
   programs,
   workouts,
@@ -174,7 +177,7 @@ export function WorkoutReferenceScreen({
   const [deletionError, setDeletionError] = useState("");
   const [savingDeletion, setSavingDeletion] = useState(false);
   const deletionLock = useRef(false);
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   // A restored native route must explicitly transition to its persisted index
   // so the scroll reset runs; otherwise Android can reopen at the pre-kill
   // offset and make the active set fields unreachable to directional tooling.
@@ -185,9 +188,21 @@ export function WorkoutReferenceScreen({
     latestDraftRef.current = draft;
   }, [draft]);
   useEffect(() => {
-    if (!workouts) return;
+    if (!workouts || !focused) return;
+    if (latestDraftRef.current) {
+      setNow(Date.now());
+      void workouts.saveDraftSnapshot(latestDraftRef.current)
+        .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo comprobar la preparación guardada."));
+    }
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" || !latestDraftRef.current) return;
+      if (!latestDraftRef.current) return;
+      if (state === "active") {
+        setNow(Date.now());
+        // An unchanged save verifies persisted readiness and restrictions too.
+        void workouts.saveDraftSnapshot(latestDraftRef.current)
+          .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo comprobar la preparación guardada. Vuelve a Hoy para revisarla."));
+        return;
+      }
       try {
         if (!workouts.saveDraftSnapshotBeforeProcessStop(latestDraftRef.current)) {
           void workouts.saveDraftSnapshot(latestDraftRef.current)
@@ -198,7 +213,7 @@ export function WorkoutReferenceScreen({
       }
     });
     return () => subscription.remove();
-  }, [workouts]);
+  }, [workouts, focused]);
   const [settings, setSettings] = useState<TrainingSettings>(defaultSettings);
   useEffect(() => {
     if (settingsStore) void settingsStore.load().then(setSettings);
@@ -420,6 +435,15 @@ export function WorkoutReferenceScreen({
     latestDraftRef.current = next;
     setDraft(next);
   };
+  const navigateExercise = (delta: number) => {
+    const current = latestDraftRef.current;
+    if (!current || savingSet || savingNavigation) return;
+    const index = Math.max(0, Math.min(current.exercises.length - 1, exerciseIndex + delta));
+    const next = { ...current, activeExerciseIndex: index, activeSetIndex: 0 };
+    latestDraftRef.current = next;
+    setSkipSetIndex(null); setSkipReason(''); setSkipError('');
+    setDraft(next); setExerciseIndex(index);
+  };
   const completeSetAt = async (index: number, undo = false) => {
     if (completionLock.current) return;
     const current = latestDraftRef.current;
@@ -427,15 +451,17 @@ export function WorkoutReferenceScreen({
     completionLock.current = true;
     setSavingSet(true);
     try {
-      const next = workouts && !undo
+      let next = workouts && !undo
         ? await workouts.completeSetAndSave(current, exerciseIndex, index)
         : { ...current, exercises: current.exercises.map((item, itemIndex) => itemIndex !== exerciseIndex ? item : {
           ...item, sets: item.sets.map((candidate, setIndex) => setIndex !== index ? candidate : {
             ...candidate, completed: !undo, skipped: false, disposition: undo ? 'PENDING' as const : 'COMPLETED' as const, skipReason: undefined,
           }),
         }) };
+      if (!workouts && !undo && current.exercises[exerciseIndex]?.sets[index]?.disposition !== 'COMPLETED') next = restAfterCompletion(next, Date.now());
       if (undo && workouts) await workouts.saveDraftSnapshot(next);
       latestDraftRef.current = next;
+      setNow(Date.now());
       setDraft(next);
       if (!undo) void playContractedHaptic('setCompleted');
     } catch (reason) {
@@ -459,8 +485,12 @@ export function WorkoutReferenceScreen({
   }
   const timer = draft.timer ?? resetTimer();
   const updateTimer = (next: typeof timer) => {
-    setNow(next.runningSince ?? 0);
-    setDraft((current) => current && { ...current, timer: next });
+    const current = latestDraftRef.current;
+    if (!current) return;
+    const updated = { ...current, timer: next, ...([60, 90, 120].includes(next.durationSeconds) ? { restSeconds: next.durationSeconds } : {}) };
+    latestDraftRef.current = updated;
+    setNow(Date.now());
+    setDraft(updated);
   };
   const guidance = exerciseCatalog.find(
     (item) => item.id === exercise.exerciseId,
@@ -536,46 +566,20 @@ export function WorkoutReferenceScreen({
         </Panel> : null}
         <WorkoutFrame
           scrollRef={scrollRef}
+          rest={<MiniRestTimer timer={timer} now={now} onChange={updateTimer} />}
           commands={
               <View style={styles.commands}>
                 <IconButton
                   accessibilityLabel="Ejercicio anterior"
                   icon={ArrowLeft}
                   disabled={savingSet || savingNavigation || exerciseIndex === 0}
-                  onPress={() =>
-                    setExerciseIndex((index) => {
-                      setSkipSetIndex(null);
-                      setSkipReason("");
-                      setSkipError("");
-                      const next = Math.max(0, index - 1);
-                      setDraft(
-                        (current) =>
-                          current && { ...current, activeExerciseIndex: next, activeSetIndex: 0 },
-                      );
-                      return next;
-                    })
-                  }
+                  onPress={() => navigateExercise(-1)}
                 />
                 <IconButton
                   accessibilityLabel="Siguiente ejercicio"
                   icon={ArrowRight}
                   disabled={savingSet || savingNavigation || exerciseIndex === draft.exercises.length - 1}
-                  onPress={() =>
-                    setExerciseIndex((index) => {
-                      setSkipSetIndex(null);
-                      setSkipReason("");
-                      setSkipError("");
-                      const next = Math.min(
-                        draft.exercises.length - 1,
-                        index + 1,
-                      );
-                      setDraft(
-                        (current) =>
-                          current && { ...current, activeExerciseIndex: next, activeSetIndex: 0 },
-                      );
-                      return next;
-                    })
-                  }
+                  onPress={() => navigateExercise(1)}
                 />
               <View style={styles.flex}>
               <ActionButton
@@ -939,7 +943,13 @@ export function WorkoutReferenceScreen({
               ) : null}
             </SetEntryRow>
           ))}
-          <RestDock timer={timer} now={now} onChange={updateTimer} />
+          <RestDock timer={timer} now={now} onChange={updateTimer} autoStart={draft.autoRestEnabled ?? false} onAutoStartChange={autoRestEnabled => {
+            const current = latestDraftRef.current;
+            if (!current) return;
+            const next = { ...current, autoRestEnabled };
+            latestDraftRef.current = next;
+            setDraft(next);
+          }} />
         </WorkoutFrame>
       </View>
       </View>

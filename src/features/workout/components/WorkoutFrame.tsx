@@ -9,9 +9,9 @@ import { X } from 'lucide-react-native';
 import { ExerciseProgressRail } from './ExerciseProgressRail';
 import { AppMasthead, BottomCommandDock } from '@/design-system/v2.2/components';
 
-type Props = PropsWithChildren<{ busy?: boolean; current: number; exerciseName: string; nextName?: string | undefined; onClose: () => void; onShowGuidance: () => void; total: number; commands: ReactNode; scrollRef?: RefObject<ScrollView | null> }>;
+type Props = PropsWithChildren<{ busy?: boolean; current: number; exerciseName: string; nextName?: string | undefined; onClose: () => void; onShowGuidance: () => void; total: number; commands: ReactNode; rest?: ReactNode; scrollRef?: RefObject<ScrollView | null> }>;
 
-export function WorkoutFrame({ busy = false, children, commands, current, exerciseName, nextName, onClose, onShowGuidance, total, scrollRef }: Props) {
+export function WorkoutFrame({ busy = false, children, commands, rest, current, exerciseName, nextName, onClose, onShowGuidance, total, scrollRef }: Props) {
   const theme = useAppTheme();
   const fallbackScroll = useRef<ScrollView>(null);
   const contentScroll = scrollRef ?? fallbackScroll;
@@ -37,7 +37,7 @@ export function WorkoutFrame({ busy = false, children, commands, current, exerci
     const subscription = Keyboard.addListener('keyboardDidShow', revealFocusedInput);
     return () => { subscription.remove(); if (keyboardFrame.current !== undefined) cancelAnimationFrame(keyboardFrame.current); };
   }, [revealFocusedInput]);
-  return <Screen scrollRef={contentScroll} innerScrollRef={innerScroll} onScrollLayout={revealFocusedInput} testID="workout-screen" footer={<BottomCommandDock><View style={[styles.commandBar, { borderTopColor: theme.text }]} testID="workout-command-bar">{commands}</View></BottomCommandDock>}><View style={styles.content}>
+  return <Screen scrollRef={contentScroll} innerScrollRef={innerScroll} onScrollLayout={revealFocusedInput} testID="workout-screen" footer={<BottomCommandDock><View style={[styles.commandBar, { borderTopColor: theme.text }]} testID="workout-command-bar">{rest}{commands}</View></BottomCommandDock>}><View style={styles.content}>
     <AppMasthead role="task" command={<IconButton disabled={busy} accessibilityLabel="Cerrar entrenamiento" icon={X} onPress={onClose} />} context="GUARDADO AUTOMÁTICO" title="ENTRENAMIENTO" />
     <ExerciseProgressRail current={current} total={total} />
     <View style={[styles.header, { borderBottomColor: theme.text }]} testID="workout-exercise-header">
