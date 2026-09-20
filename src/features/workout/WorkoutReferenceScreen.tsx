@@ -8,7 +8,7 @@ import {
   Minus,
   Plus,
 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -141,9 +141,17 @@ export function WorkoutReferenceScreen({
 }: Props) {
   const theme = useAppTheme();
   const { reducedMotion } = useMotionPolicy();
-  const [draft, setDraft] = useState<WorkoutDraft | null>(
+  const [draft, setRenderedDraft] = useState<WorkoutDraft | null>(
     workouts ? null : preview,
   );
+  const latestDraftRef = useRef<WorkoutDraft | null>(draft);
+  // Native text events can arrive before a previous render's effects. Keep the
+  // checkpoint source synchronous; an older render must never rewind it.
+  const setDraft = useCallback((next: WorkoutDraft | null | ((current: WorkoutDraft | null) => WorkoutDraft | null)) => {
+    const value = typeof next === 'function' ? next(latestDraftRef.current) : next;
+    latestDraftRef.current = value;
+    setRenderedDraft(value);
+  }, []);
   const [error, setError] = useState("");
   const [invalidLoads, setInvalidLoads] = useState<Record<string, string>>({});
   const [savingSet, setSavingSet] = useState(false);
@@ -183,10 +191,6 @@ export function WorkoutReferenceScreen({
   // offset and make the active set fields unreachable to directional tooling.
   const [exerciseIndex, setExerciseIndex] = useState(workouts ? -1 : 0);
   const scrollRef = useRef<ScrollView>(null);
-  const latestDraftRef = useRef<WorkoutDraft | null>(draft);
-  useEffect(() => {
-    latestDraftRef.current = draft;
-  }, [draft]);
   useEffect(() => {
     if (!workouts || !focused) return;
     if (latestDraftRef.current) {
@@ -235,7 +239,7 @@ export function WorkoutReferenceScreen({
             : "No se pudo abrir la sesión",
         ),
       );
-  }, [programs, requireReadiness, workouts]);
+  }, [programs, requireReadiness, workouts, setDraft]);
   useEffect(() => {
     if (!draft || !workouts || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
     const timer = setTimeout(
