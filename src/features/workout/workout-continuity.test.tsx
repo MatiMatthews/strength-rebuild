@@ -39,3 +39,31 @@ it('revalidates the persisted safety guard on foreground without navigating or l
   await view.unmount();
   subscription.mockRestore();
 });
+
+it('checkpoints a burst of native text edits and foreground events from the latest revision', async () => {
+  let listener!: (state: AppStateStatus) => void;
+  const subscription = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => { listener = handler; return { remove: jest.fn() }; });
+  const draft: WorkoutDraft = { id: 'typing', revision: 0, activeExerciseIndex: 0, activeSetIndex: 0, safetyModifications: [], exercises: [{ exerciseId: 'barbell-bench-press', originalExerciseId: 'barbell-bench-press', requirement: 'EXACT', sets: [{ load: '40', reps: '8', rir: '3', technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING' }] }] };
+  let persisted = structuredClone(draft);
+  const checkpoint = (value: WorkoutDraft) => {
+    if (value.revision !== persisted.revision) throw new Error('Stale draft revision');
+    value.revision = (value.revision ?? 0) + 1;
+    persisted = structuredClone(value);
+    return true;
+  };
+  const workouts = { startOrResume: jest.fn().mockResolvedValue(draft), saveDraftSnapshot: async (value: WorkoutDraft) => { checkpoint(value); }, saveDraftSnapshotBeforeProcessStop: checkpoint, canComplete: () => false } as unknown as WorkoutService;
+  const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
+  const view = await render(<WorkoutReferenceScreen workouts={workouts} programs={programs} onClose={jest.fn()} />);
+  await view.findByLabelText('Mostrar notas de la serie 1');
+  await fireEvent.press(view.getByLabelText('Mostrar notas de la serie 1'));
+  const note = 'Synthetic continuity';
+  for (let length = 1; length <= note.length; length++) {
+    await fireEvent.changeText(view.getByLabelText('Notas de la serie 1'), note.slice(0, length));
+    await act(async () => { listener('background'); listener('active'); });
+  }
+  expect(persisted.exercises[0]!.sets[0]!.notes).toBe(note);
+  expect(view.getByLabelText('Notas de la serie 1')).toHaveProp('value', note);
+  expect(view.queryByText('No se pudo abrir el entrenamiento')).toBeNull();
+  await view.unmount();
+  subscription.mockRestore();
+});
