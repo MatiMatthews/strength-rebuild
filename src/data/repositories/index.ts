@@ -6,6 +6,8 @@ export interface RunResult {
 }
 
 export interface RepositoryDatabase {
+  execSync?(sql: string): void;
+  isInTransactionSync?(): boolean;
   runSync?(sql: string, ...params: SqlValue[]): RunResult;
   runAsync(sql: string, ...params: SqlValue[]): Promise<RunResult>;
   getFirstAsync<T>(sql: string, ...params: SqlValue[]): Promise<T | null>;

@@ -85,6 +85,10 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} stati
     await page.goto(route);
     await expect(page.getByRole('main')).toBeVisible();
     await expect(page.getByText(/Cargando/)).toHaveCount(0);
+    // The exported shell appears before hydration; inspect the persisted fixture, not that shell.
+    if (route === '/') await expect(page.getByTestId('session-header')).toBeVisible();
+    if (route === '/plan') await expect(page.getByText('Plan activo', { exact: true })).toBeVisible();
+    if (route === '/history') await expect(page.getByTestId('progress-training-outcomes')).toBeVisible();
     await inspectContent(page, info, `${colorScheme}-${route.slice(1) || 'today'}`);
   }
   const saved = await readPersistence(page, info);

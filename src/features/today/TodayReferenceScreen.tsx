@@ -35,6 +35,7 @@ type Props = {
   initialReadinessInput?: SafetyInput | null;
   onApplyReadiness?: (input: ReadinessInput) => void | PersistedReadiness | Promise<void | PersistedReadiness>;
   onOpenSettings: () => void;
+  onCreatePlan?: () => void;
   onOpenReview?: () => void;
   onOpenCycle?: () => void;
   onStartWorkout: () => void;
@@ -71,6 +72,7 @@ export function TodayReferenceScreen({
   savedReadiness = null,
   onApplyReadiness,
   onOpenSettings,
+  onCreatePlan,
   activeReadiness = null,
   onOpenReview,
   onStartWorkout,
@@ -120,6 +122,7 @@ export function TodayReferenceScreen({
           <View accessibilityLabel={emptyCopy[0]} testID="today-alternate-state" style={styles.alternate}>
             <Text accessibilityRole="header" aria-level={2} style={[styles.display, { color: theme.text }]}>{emptyCopy[0]}</Text>
             <Text style={[styles.body, { color: theme.textMuted }]}>{emptyCopy[1]}</Text>
+            {state.kind === 'empty' && onCreatePlan ? <ActionButton onPress={onCreatePlan}>Crear mi plan</ActionButton> : null}
             {state.kind === "review-required" && onOpenReview ? <ActionButton onPress={onOpenReview}>Abrir revisión semanal</ActionButton> : null}
           </View>
         </BrandContent>
