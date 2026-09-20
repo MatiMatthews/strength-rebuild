@@ -27,7 +27,23 @@ for(const colorScheme of ['light','dark'] as const) test(`${colorScheme} workout
   await page.emulateMedia({colorScheme});
   const {startSyntheticWorkout}=await import('./setup');await startSyntheticWorkout(page,async()=>{ for(const radio of await page.getByRole('radio').all()) { await fieldContrast(radio,info,'preparation-choice');await navigationContrast(radio,info,'preparation-label'); } });
   await expect(page.getByRole('button',{name:'Cerrar Preparación de hoy',exact:true})).toHaveCount(0);
-  for(const input of await page.locator('input,textarea').all()) { await input.scrollIntoViewIfNeeded(); await fieldContrast(input,info,'workout-input'); }
+  for(const input of await page.getByRole('textbox').all()) { await input.scrollIntoViewIfNeeded(); await fieldContrast(input,info,'workout-input'); }
+  const toggle=page.getByRole('switch',{name:'Descanso automático al completar una serie',exact:true});
+  for(const checked of [false,true]) {
+    if(checked) await toggle.click();
+    await expect(toggle).toBeChecked({checked});
+    const contrast=await toggle.evaluate(input=>{
+      const root=input.parentElement!;
+      const track=root.children[0]!,thumb=root.children[1]!;
+      let surface=root.parentElement!;
+      while(getComputedStyle(surface).backgroundColor==='rgba(0, 0, 0, 0)') surface=surface.parentElement!;
+      const luminance=(color:string)=>{const rgb=color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return rgb[0]!*.2126+rgb[1]!*.7152+rgb[2]!*.0722;};
+      const ratio=(a:Element,b:Element)=>{const x=luminance(getComputedStyle(a).backgroundColor),y=luminance(getComputedStyle(b).backgroundColor);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+      return {track:ratio(track,surface),thumb:ratio(thumb,track)};
+    });
+    expect(contrast.track).toBeGreaterThanOrEqual(3);expect(contrast.thumb).toBeGreaterThanOrEqual(3);
+  }
+  await toggle.click();await expect(toggle).not.toBeChecked();
   for(const radio of await page.getByRole('radio').all()) {await fieldContrast(radio,info,'workout-choice');await navigationContrast(radio,info,'workout-choice-label');}
   await page.getByRole('radio',{name:'Regular, serie 1',exact:true}).click();
   await expect.poll(async()=>{const state=await readPersistence(page,info);return JSON.parse(String(state.workouts[0]!.actual_snapshot_json)).exercises[0].sets[0].technique;}).toBe('Regular');
