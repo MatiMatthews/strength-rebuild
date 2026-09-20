@@ -2,6 +2,20 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { ReplacementSheet } from './ReplacementSheet';
 import { defaultSettings } from '../settings/settings';
 
+it('requires confirmation for non-anchor alternatives and cancellation makes no change', async () => {
+  const confirm = jest.fn();
+  const view = await render(<ReplacementSheet exerciseId="bird-dog" requirement="CAPABILITY" onCancel={jest.fn()} onConfirm={confirm} settings={{ ...defaultSettings, equipment: ['bodyweight'] }} />);
+  await fireEvent.press(view.getByLabelText('Quiero variar'));
+  await fireEvent.press(view.getByLabelText('Elegir Dead bug'));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(view.getByLabelText('Confirmar reemplazo')).toBeTruthy();
+  await fireEvent.press(view.getByText('Revisar alternativas'));
+  expect(confirm).not.toHaveBeenCalled();
+  await fireEvent.press(view.getByLabelText('Elegir Dead bug'));
+  await fireEvent.press(view.getByLabelText('Confirmar reemplazo'));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ id: 'dead-bug' }), 'boredom');
+});
+
 it('requires an explicit incline bench and refreshes compatible alternatives when settings change', async () => {
   const props = { exerciseId: 'barbell-bench-press', requirement: 'EXACT' as const, onCancel: jest.fn(), onConfirm: jest.fn() };
   const view = await render(<ReplacementSheet {...props} settings={defaultSettings} />);

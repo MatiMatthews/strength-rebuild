@@ -59,7 +59,10 @@ import { resetTimer } from "@/features/timer/rest-timer";
 
 import { deleteLastSet, undoSetDeletion } from "@/application/workouts/set-deletion";
 import { previousRecordedSets } from './previous-performance';
-import { recordingForExercise, validRecordedQuantity } from '@/domain/prescriptions/measurement';
+import { validRecordedQuantity } from '@/domain/prescriptions/measurement';
+import { replaceExerciseDraft, replacementBlocker, type ReplacementContext } from '@/application/workouts/exercise-replacement';
+import { planningProfile } from '@/features/settings/settings';
+import { savedAlternatives } from '@/features/exercises/saved-alternatives';
 
 type Props = {
   onClose: () => void;
@@ -149,6 +152,9 @@ export function WorkoutReferenceScreen({
   const navigationLock = useRef(false);
   const completionLock = useRef(false);
   const [replacing, setReplacing] = useState(false);
+  const [savingReplacement, setSavingReplacement] = useState(false);
+  const replacementLock = useRef(false);
+  const [cycleType, setCycleType] = useState<ReplacementContext['type']>('reentry');
   const [replacementError, setReplacementError] = useState('');
   const [showingGuidance, setShowingGuidance] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -207,6 +213,7 @@ export function WorkoutReferenceScreen({
     if (!workouts || !programs) return;
     void loadConfirmedToday(programs)
       .then((today) => {
+        setCycleType(today.cycleType ?? 'reentry');
         return workouts.startOrResume(requireReadiness ? today : today.session);
       })
       .then((restored) => {
@@ -222,7 +229,7 @@ export function WorkoutReferenceScreen({
       );
   }, [programs, requireReadiness, workouts]);
   useEffect(() => {
-    if (!draft || !workouts || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
+    if (!draft || !workouts || savingReplacement || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
     const timer = setTimeout(
       () =>
         void workouts
@@ -231,7 +238,7 @@ export function WorkoutReferenceScreen({
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts, savingOmission, savingDeletion, savingSet, savingNavigation, navigationError, error]);
+  }, [draft, workouts, savingReplacement, savingOmission, savingDeletion, savingSet, savingNavigation, navigationError, error]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -264,7 +271,7 @@ export function WorkoutReferenceScreen({
       </Screen>
     );
   const closeWorkout = async () => {
-    if (navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current) return;
+    if (navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current || replacementLock.current) return;
     navigationLock.current = true;
     setSavingNavigation(true);
     setNavigationError("");
@@ -523,7 +530,7 @@ export function WorkoutReferenceScreen({
       style={styles.flex}
       testID="keyboard-avoiding-workout"
     >
-      <View collapsable={false} style={styles.flex} pointerEvents={savingOmission || savingDeletion || savingNavigation || savingSet ? "none" : "auto"}>
+      <View collapsable={false} style={styles.flex} pointerEvents={savingReplacement || savingOmission || savingDeletion || savingNavigation || savingSet ? "none" : "auto"}>
       <View style={styles.flex}>
         <View collapsable={false} style={{ display: navigationError || savingNavigation ? "flex" : "none" }} testID="workout-navigation-feedback">
         {navigationError ? <AppText accessibilityRole="alert" color="danger">{navigationError}</AppText> : null}
@@ -599,7 +606,7 @@ export function WorkoutReferenceScreen({
               ? exerciseName(draft.exercises[exerciseIndex + 1]!.exerciseId)
               : undefined
           }
-          busy={savingSet || savingOmission || savingDeletion || savingNavigation}
+          busy={savingReplacement || savingSet || savingOmission || savingDeletion || savingNavigation}
           onClose={() => void closeWorkout()}
           onShowGuidance={() => setShowingGuidance(true)}
           total={draft.exercises.length}
@@ -653,39 +660,34 @@ export function WorkoutReferenceScreen({
               exerciseId={exercise.exerciseId}
               requirement={exercise.requirement}
               onCancel={() => setReplacing(false)}
-              onConfirm={(selected, reason) => {
+              blocked={replacementBlocker(draft, exerciseIndex)}
+              busy={savingReplacement}
+              history={history}
+              context={{ type: cycleType, profile: planningProfile(settings) }}
+              onConfirm={async (selected, reason) => {
+                if (replacementLock.current) return;
+                replacementLock.current = true;
+                setSavingReplacement(true);
                 const current = latestDraftRef.current ?? draft;
                 try {
-                  setDraft(workouts
-                    ? workouts.replaceExercise(
-                        current,
-                        exerciseIndex,
-                        selected.id,
-                        reason,
-                      )
-                    : {
-                        ...current,
-                        exercises: current.exercises.map((item, index) =>
-                          index !== exerciseIndex
-                            ? item
-                            : {
-                                ...item,
-                                exerciseId: selected.id,
-                                ...(item.recording ? { recording: recordingForExercise(selected.id) } : {}),
-                                replacement: {
-                                  fromExerciseId: item.exerciseId,
-                                  reason,
-                                },
-                              },
-                        ),
-                      });
+                  const fresh = settingsStore ? await settingsStore.load() : settings;
+                  const recent = workouts?.listHistory ? await workouts.listHistory() : history;
+                  if (!savedAlternatives(exercise.exerciseId, exercise.requirement, reason, fresh, recent).some(item => item.exercise.id === selected.id)) throw new Error('La alternativa ya no es compatible con tus preferencias. Vuelve a revisar las opciones.');
+                  const context = { type: cycleType, profile: planningProfile(fresh) };
+                  const next = workouts ? workouts.replaceExercise(current, exerciseIndex, selected.id, reason, context) : replaceExerciseDraft(current, exerciseIndex, selected.id, reason, context);
+                  if (workouts) await workouts.saveDraftSnapshot(next);
+                  latestDraftRef.current = next;
+                  setDraft(next); setSettings(fresh); setHistory(recent);
+                  setReplacementError('');
+                  setReplacing(false);
+                  setShowingGuidance(false);
                 } catch (cause) {
+                  latestDraftRef.current = current;
                   setReplacementError(cause instanceof Error ? cause.message : 'No se pudo cambiar el ejercicio. El registro se conserva.');
-                  return;
+                } finally {
+                  replacementLock.current = false;
+                  setSavingReplacement(false);
                 }
-                setReplacementError('');
-                setReplacing(false);
-                setShowingGuidance(false);
               }}
               settings={settings}
             />
@@ -695,6 +697,7 @@ export function WorkoutReferenceScreen({
               onPress={async () => {
                 try {
                   if (settingsStore) setSettings(await settingsStore.load());
+                  if (workouts?.listHistory) setHistory(await workouts.listHistory());
                   setReplacementError('');
                   setReplacing(true);
                 } catch { setError("No se pudieron cargar las preferencias. Vuelve a intentar abrir las alternativas."); }

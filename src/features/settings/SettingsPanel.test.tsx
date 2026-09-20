@@ -4,6 +4,18 @@ import { SettingsPanel } from './SettingsPanel';
 import { defaultSettings } from './settings';
 
 describe('SettingsPanel', () => {
+  it('saves an explicitly selected alternative skill level and cancels later edits', async () => {
+    const store = { load: jest.fn().mockResolvedValue(defaultSettings), save: jest.fn().mockResolvedValue(undefined) };
+    const view = await render(<SettingsPanel store={store} />);
+    await waitFor(() => expect(view.getByLabelText('Nivel técnico Inicial').props.accessibilityState.disabled).toBe(false));
+    await fireEvent.press(view.getByLabelText('Nivel técnico Intermedio'));
+    await fireEvent.press(view.getByLabelText('Guardar configuración local'));
+    expect(store.save).toHaveBeenCalledWith(expect.objectContaining({ skillLevel: 'intermediate' }), defaultSettings);
+    await fireEvent.press(view.getByLabelText('Nivel técnico Avanzado'));
+    await fireEvent.press(view.getByLabelText('Cancelar cambios de configuración'));
+    expect(view.getByLabelText('Nivel técnico Intermedio').props.accessibilityState.checked).toBe(true);
+    expect(store.save).toHaveBeenCalledTimes(1);
+  });
   it('loads and persists offline settings', async () => {
     const store = { load: jest.fn().mockResolvedValue(defaultSettings), save: jest.fn().mockResolvedValue(undefined) };
     const view = await render(<SettingsPanel store={store} />);

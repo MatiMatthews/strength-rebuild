@@ -5,6 +5,7 @@ export type UnitSystem = 'kg' | 'lb';
 export type RequirementKind = 'EXACT' | 'PATTERN' | 'CAPABILITY';
 
 export interface TrainingSettings {
+  skillLevel?: 'beginner' | 'intermediate' | 'advanced';
   demoProfileId?: string;
   units: UnitSystem;
   increments: number[];
@@ -48,6 +49,7 @@ export function resolveTrainingSettings(persisted: TrainingSettings | null | und
 }
 
 export function validateSettings(settings: TrainingSettings): { success: true } | { success: false; message: string; requirementIndex?: number } {
+  if (settings.skillLevel && !['beginner', 'intermediate', 'advanced'].includes(settings.skillLevel)) return { success: false, message: 'Selecciona un nivel técnico válido para las alternativas.' };
   if (!settings.increments.length || settings.increments.some((value) => !Number.isFinite(value) || value <= 0)) return { success: false, message: 'Añade al menos un incremento positivo.' };
   if (!settings.equipment.length) return { success: false, message: 'Selecciona al menos un equipo disponible.' };
   if (settings.schedule.length !== 3 || new Set(settings.schedule).size !== 3 || settings.schedule.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) return { success: false, message: 'Selecciona exactamente tres días distintos de entrenamiento.' };

@@ -74,6 +74,8 @@ export function SettingsPanel({ scenario, store }: { scenario?: 'settings-valida
     </View>)}
     <ActionButton accessibilityLabel="Añadir incremento" disabled={busy || !baseline} onPress={() => setIncrements((current) => [...current, ''])} tone="secondary">Añadir incremento</ActionButton>
     <AppText variant="label">Referencias personales</AppText>
+    <AppText variant="label">Nivel técnico de las alternativas</AppText>
+    <View style={styles.wrap}>{([['beginner', 'Inicial'], ['intermediate', 'Intermedio'], ['advanced', 'Avanzado']] as const).map(([value, label]) => <View key={value}>{choice(label, (settings.skillLevel ?? 'beginner') === value, () => setSettings(current => ({ ...current, skillLevel: value })), `Nivel técnico ${label}`)}</View>)}</View>
     <AppText color="muted">Usa referencias que ya conoces; no necesitas probar tu máximo. No lo sé deja la carga por definir. Solo cambia el próximo plan, nunca el trabajo guardado.</AppText>
     {referenceKeys.map(key => <View key={key} style={{ gap: spacing.sm }}>
       <AppText variant="label">{referenceLabels[key]}</AppText>
