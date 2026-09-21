@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { startSyntheticWorkout, isLastWorkoutExercise, openBenchPress } from './setup';
 import { readPersistence } from './persistence';
+import { openLatestHistorySession } from './history-navigation';
 
 async function units(page:Page,unit:'kg'|'lb') {
  await page.goto('/settings');
@@ -44,6 +45,7 @@ test('records pounds and kilograms without reinterpreting drafts, history or enc
  await page.getByRole('button',{name:'Confirmar fin de entrenamiento',exact:true}).click();
  await expect(page).toHaveURL(/4179\/$/);
  await page.goto('/history');
+ await openLatestHistorySession(page);
  await expect(page.getByText('Serie 1: 45.359237 kg × 5',{exact:true})).toBeVisible();
  await expect(page.getByText('Serie 2: 45.359237 kg × 5',{exact:true})).toBeVisible();
  await readPersistence(page,info);let db=new DatabaseSync(info.outputPath('canonical.sqlite'));
@@ -59,6 +61,7 @@ test('records pounds and kilograms without reinterpreting drafts, history or enc
  await page.getByRole('button',{name:'Confirmar restauración del respaldo',exact:true}).click();
  await expect(page.getByText('Respaldo restaurado de forma atómica.',{exact:true})).toBeVisible();
  await page.close();page=await context.newPage();await page.goto('/history');
+ await openLatestHistorySession(page);
  await expect(page.getByText('Serie 2: 45.359237 kg × 5',{exact:true})).toBeVisible();
  await readPersistence(page,info);db=new DatabaseSync(info.outputPath('canonical.sqlite'));
  expect(db.prepare("SELECT actual_snapshot_json FROM workout_session WHERE status='COMPLETED'").get()).toEqual(row);db.close();

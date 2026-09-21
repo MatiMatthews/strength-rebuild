@@ -81,7 +81,7 @@ describe('explicit early completion', () => {
     expect(history[0]!.actual.exercises).toEqual(original.exercises);
     expect(history[0]!.actual.completionMode).toBe('early');
     expect(history[0]!.actual.exercises[0]!.sets.map(set => set.disposition)).toEqual(['COMPLETED', 'SKIPPED', 'PENDING', 'PENDING']);
-    expect(buildHistoryAnalytics(history)).toMatchObject({ completedSetCount: 1, skippedSetCount: 1, pendingSetCount: 2, adherence: 0.25 });
+    expect(buildHistoryAnalytics(history, 3)).toMatchObject({ completedSetCount: 1, skippedSetCount: 1, pendingSetCount: 2, setCompletion: 0.25, adherence: 1 / 3 });
     await service.complete(draft, { finishEarly: true });
     expect(await service.listHistory()).toHaveLength(1);
     sqlite.close();

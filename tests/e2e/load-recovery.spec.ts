@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { readPersistence } from './persistence';
+import { openLatestHistorySession } from './history-navigation';
 import { startSyntheticWorkout } from './setup';
 
 test('recovers pounds in history and an active workout without rewriting originals on reopen', async ({page,context},info)=>{
@@ -48,6 +49,7 @@ test('recovers pounds in history and an active workout without rewriting origina
  let app=await context.newPage();
  for(let i=0;i<2;i++){
   await app.goto('/history');
+  await openLatestHistorySession(app);
   await expect(app.getByText('Serie 1: 45.359237 kg × 8',{exact:true})).toBeVisible();
   await expect(app.getByText('Serie 2: 80 kg × 8',{exact:true})).toBeVisible();
   await expect(app.getByText('Serie 3: 100 kg × 8',{exact:true})).toBeVisible();
@@ -59,11 +61,13 @@ test('recovers pounds in history and an active workout without rewriting origina
   await app.close();app=await context.newPage();
  }
  await app.goto('/history');
+ await openLatestHistorySession(app);
  await app.getByRole('button',{name:'Corregir serie 1 de Press banca',exact:true}).click();
  await app.getByLabel('Carga corregida',{exact:true}).fill('40');await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Checked kilograms');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
  await expect(app.getByText('Serie 1: 40 kg × 8',{exact:true})).toBeVisible();
  await app.close();app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByText('Serie 1: 40 kg × 8',{exact:true})).toBeVisible();
  await expect(app.getByText(/original 45.359237 kg · 45.359237 → 40 kg/)).toBeVisible();
  await readPersistence(app,info);const saved=new DatabaseSync(info.outputPath('canonical.sqlite'));

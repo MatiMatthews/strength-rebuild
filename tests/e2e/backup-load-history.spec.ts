@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { readPersistence as readRawPersistence } from './persistence';
+import { openLatestHistorySession } from './history-navigation';
 import { startSyntheticWorkout } from './setup';
 const readPersistence: typeof readRawPersistence = async (page,info) => {
  const result=await readRawPersistence(page,info);result.workouts.sort((a,b)=>String(a.id).localeCompare(String(b.id)));return result;
@@ -51,6 +52,7 @@ test('restores mixed load history and an active workout, rejecting invalid corre
  let app=await context.newPage();
  for(let i=0;i<2;i++){
   await app.goto('/history');
+  await openLatestHistorySession(app);
   await expect(app.getByText('Serie 1: 45.359237 kg × 8',{exact:true})).toBeVisible();
   await expect(app.getByText('Serie 2: 80 kg × 8',{exact:true})).toBeVisible();
   await expect(app.getByText('Serie 3: 100 kg × 8',{exact:true})).toBeVisible();
@@ -62,11 +64,13 @@ test('restores mixed load history and an active workout, rejecting invalid corre
   await app.close();app=await context.newPage();
  }
  await app.goto('/history');
+ await openLatestHistorySession(app);
  await app.getByRole('button',{name:'Corregir serie 1 de Press banca',exact:true}).click();
  await app.getByLabel('Carga corregida',{exact:true}).fill('40');await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Checked kilograms');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
  await expect(app.getByText('Serie 1: 40 kg × 8',{exact:true})).toBeVisible();
  await app.close();app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByText('Serie 1: 40 kg × 8',{exact:true})).toBeVisible();
  await expect(app.getByText(/original 45.359237 kg · 45.359237 → 40 kg/)).toBeVisible();
  await readPersistence(app,info);const saved=new DatabaseSync(info.outputPath('canonical.sqlite'));
@@ -86,6 +90,7 @@ test('restores mixed load history and an active workout, rejecting invalid corre
  await expect(app.getByText('Respaldo restaurado de forma atómica.')).toBeVisible();
  expect(await readPersistence(app,info)).toEqual(before);
  await app.close();app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByText('Serie 1: 40 kg × 8',{exact:true})).toBeVisible();
  await expect(app.getByText('Serie 4: 22.6796185 kg × 8',{exact:true})).toBeVisible();
  await app.screenshot({path:info.outputPath('restored-load-history.png'),fullPage:true});
