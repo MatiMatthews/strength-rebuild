@@ -11,7 +11,8 @@ import type { ReplacementReason } from '../../domain/substitutions';
 import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput } from '../../domain/progression/propose-progression';
 
 import type { SetDeletion } from './set-deletion';
-import { recordingForExercise, validRecordedQuantity, type ExerciseRecording } from '../../domain/prescriptions/measurement';
+import { validRecordedQuantity, type ExerciseRecording } from '../../domain/prescriptions/measurement';
+import { replaceExerciseDraft, type ReplacementContext } from './exercise-replacement';
 
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
 export interface WorkoutSetDraft { seconds?: string; loadEntry?: LoadEntry | undefined; loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
@@ -360,13 +361,8 @@ export class WorkoutService {
       : updatedSet;
     return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, sets: item.sets.map((candidate, index) => index === setIndex ? enforcedSet : candidate) } : item), safetyModifications: safety.disposition === 'MODIFY_SET' || safety.disposition === 'STOP_PATTERN' || safety.disposition === 'REVIEW_REQUIRED' ? [...draft.safetyModifications, { ...safety, exerciseIndex, setIndex, recordedAt: this.now() }] : draft.safetyModifications };
   }
-  replaceExercise(draft: WorkoutDraft, exerciseIndex: number, exerciseId: string, reason: ReplacementReason): WorkoutDraft {
-    const current = draft.exercises[exerciseIndex];
-    if (!current) throw new RangeError('Workout exercise does not exist');
-    if (current.recording && current.recording !== recordingForExercise(exerciseId) && current.sets.some(set => set.disposition === 'COMPLETED')) {
-      throw new Error('Cambiar la unidad de un ejercicio con trabajo completado requiere revisión. Conserva el ejercicio actual.');
-    }
-    return { ...draft, exercises: draft.exercises.map((item, index) => index === exerciseIndex ? { ...item, exerciseId, ...(item.recording ? { recording: recordingForExercise(exerciseId) } : {}), replacement: { fromExerciseId: item.exerciseId, reason } } : item) };
+  replaceExercise(draft: WorkoutDraft, exerciseIndex: number, exerciseId: string, reason: ReplacementReason, context?: ReplacementContext): WorkoutDraft {
+    return replaceExerciseDraft(draft, exerciseIndex, exerciseId, reason, context);
   }
   async completeSetAndSave(draft: WorkoutDraft, exerciseIndex: number, setIndex: number): Promise<WorkoutDraft> {
     const completed = this.completeSet(draft, exerciseIndex, setIndex);

@@ -97,12 +97,14 @@ describe('explicit exercise measurements', () => {
     const initial = await service.startOrResume(session);
     const replaced = service.replaceExercise(initial, 0, 'thoracic-mobility', 'other');
     expect(replaced.exercises[0]!.recording).toBe('bodyweight-reps');
-    expect(replaced.exercises[0]!.sets).toEqual(initial.exercises[0]!.sets);
-    expect(() => service.completeSet(replaced, 0, 0)).toThrow();
+    expect(replaced.exercises[0]!.sets[0]).toMatchObject({ load: '', reps: '8', rir: '5' });
+    expect(replaced.exercises[0]!.sets[0]).not.toHaveProperty('seconds');
+    expect(initial.exercises[0]!.sets[0]!.seconds).toBe('60');
     const recorded = service.completeSet(service.recordSet(replaced, 0, 0, { reps: '5' }), 0, 0);
     await service.saveDraftSnapshot(recorded);
     const restored = await new WorkoutService(db).startOrResume(session);
-    expect(restored.exercises[0]).toMatchObject({ recording: 'bodyweight-reps', sets: [expect.objectContaining({ reps: '5', seconds: '60', load: '' }), expect.anything(), expect.anything()] });
+    expect(restored.exercises[0]).toMatchObject({ recording: 'bodyweight-reps', sets: [expect.objectContaining({ reps: '5', load: '' }), expect.anything(), expect.anything()] });
+    expect(restored.exercises[0]!.sets[0]).not.toHaveProperty('seconds');
     sqlite.close();
   });
 
@@ -145,8 +147,8 @@ describe('workout execution seam', () => {
     const service = new WorkoutService(first.db, undefined, () => '2026-08-18T01:00:00.000Z', () => 'workout-c7');
 
     let draft = await service.startOrResume(today);
-    draft = service.recordSet(draft, 0, 0, { load: '22.5', reps: '8', pain: 3, technique: 'Regular' });
     draft = service.replaceExercise(draft, 0, 'incline-dumbbell-press', 'discomfort');
+    draft = service.recordSet(draft, 0, 0, { load: '22.5', loadEntry: undefined, reps: '8', pain: 3, technique: 'Regular' });
     await service.save(draft);
     first.sqlite.close();
 
@@ -195,8 +197,10 @@ describe('recoverable active set deletion', () => {
     const omittedSet = omitted.exercises[0]!.sets[3];
     omitted = undoSetDeletion(deleteLastSet(omitted, 0), 2);
     expect(omitted.exercises[0]!.sets[3]).toEqual(omittedSet);
-    const changedExercise = service.replaceExercise(deleteLastSet(omitted, 0), 0, 'goblet-squat', 'equipment-unavailable');
-    expect(() => undoSetDeletion(changedExercise, 3)).toThrow('ejercicio original');
+    const deleted = deleteLastSet(omitted, 0);
+    expect(() => service.replaceExercise(deleted, 0, 'goblet-squat', 'equipment-unavailable')).toThrow('trabajo registrado');
+    const stale = { ...deleted, exercises: deleted.exercises.map(item => ({ ...item, exerciseId: 'goblet-squat' })) };
+    expect(() => undoSetDeletion(stale, 3)).toThrow('ejercicio original');
     let minimum = deleteLastSet(deleteLastSet(deleteLastSet(omitted, 0), 0), 0);
     expect(() => deleteLastSet(minimum, 0)).toThrow('al menos una');
     minimum = service.completeSet(minimum, 0, 0);

@@ -159,9 +159,9 @@ describe('WorkoutService', () => {
     let draft = await service.startOrResume(prescription);
 
     draft = service.recordSet(draft, 3, 0, { load: '44' });
-    draft = service.replaceExercise(draft, 3, 'replacement-4', 'boredom');
+    draft = service.replaceExercise(draft, 3, 'incline-dumbbell-press', 'boredom');
     expect(draft.exercises[0]).toMatchObject({ exerciseId: 'exercise-1', sets: [{ load: '20' }] });
-    expect(draft.exercises[3]).toMatchObject({ exerciseId: 'replacement-4', sets: [{ load: '44' }] });
+    expect(draft.exercises[3]).toMatchObject({ exerciseId: 'incline-dumbbell-press', sets: [{ load: '' }] });
     expect(service.canComplete(draft)).toBe(false);
 
     for (let index = 0; index < 5; index += 1) draft = service.completeSet(draft, index, 0);
