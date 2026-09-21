@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { readPersistence } from './persistence';
+import { expectProgressVolume, openLatestHistorySession } from './history-navigation';
 
 test('edits each recorded set with effective metrics, ordered audit and immutable originals after cold reopen', async ({page,context},info)=>{
  test.setTimeout(180_000);
@@ -38,6 +39,7 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
 
 
  let app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByRole('button',{name:'Corregir serie 2 de Press banca',exact:true})).toBeVisible();
  const original=(await readPersistence(app,info)).workouts;
  const events=async()=>{await readPersistence(app,info);const d=new DatabaseSync(info.outputPath('canonical.sqlite'));try{return d.prepare("SELECT * FROM decision_log WHERE decision_type='HISTORY_CORRECTION' ORDER BY rowid").all();}finally{d.close();}};
@@ -52,15 +54,16 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
  await app.getByLabel('Carga corregida',{exact:true}).fill('55');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).evaluate((b:HTMLElement)=>{b.click();b.click();});
  await expect(app.getByText('Serie 1: 55 kg × 8',{exact:true})).toBeVisible();
- await expect(app.getByTestId('progress-metric-strip')).toContainText('920');expect(await events()).toHaveLength(1);
+ await expectProgressVolume(app, '920 kg');expect(await events()).toHaveLength(1);
  await app.getByRole('button',{name:'Corregir serie 2 de Press banca',exact:true}).click();
  await app.getByLabel('Carga corregida',{exact:true}).fill('50');await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Second set');
  await app.getByRole('button',{name:'Confirmar corrección del historial',exact:true}).click();
  await expect(app.getByText('Serie 2: 50 kg × 8',{exact:true})).toBeVisible();
  await app.close();app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByText('Serie 1: 55 kg × 8',{exact:true})).toBeVisible();
  await expect(app.getByText('Serie 2: 50 kg × 8',{exact:true})).toBeVisible();
- await expect(app.getByTestId('progress-metric-strip')).toContainText('840');
+ await expectProgressVolume(app, '840 kg');
  await expect(app.getByText(/original 60 kg · 60 → 55 kg · Plate count/)).toBeVisible();
  await expect(app.getByRole('button',{name:'Corregir serie 3 de Press banca',exact:true})).toHaveCount(0);
  expect((await readPersistence(app,info)).workouts).toEqual(original);
@@ -72,11 +75,12 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
   await app.getByRole('button',{name:'Guardar configuración local',exact:true}).click();
   await expect(app.getByText('Configuración guardada en este dispositivo.',{exact:true})).toBeVisible();
   await app.close();app=await context.newPage();await app.goto('/history');
+  await openLatestHistorySession(app);
  };
  await units('lb');
  await expect(app.getByText('Serie 1: 121.2542442 lb × 8',{exact:true})).toBeVisible();
  await expect(app.getByText(/original 132.27735731 lb/).first()).toBeVisible();
- await expect(app.getByTestId('progress-metric-strip')).toContainText('1.851,883 lb');
+ await expectProgressVolume(app, '1.851,883 lb');
  await app.getByRole('button',{name:'Corregir serie 1 de Press banca',exact:true}).click();
  await expect(app.getByLabel('Carga corregida',{exact:true})).toHaveValue('121.2542442');
  await app.getByLabel('Motivo de la corrección',{exact:true}).fill('Unchanged display');
@@ -99,7 +103,7 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
   await units(unit);await expect(app.getByText(`Serie 1: ${unit==='kg'?'55 kg':'121.2542442 lb'} × 8`,{exact:true})).toBeVisible();
   expect(await events()).toEqual(mixedAudit);
  }
- await expect(app.getByTestId('progress-metric-strip')).toContainText('880 kg');
+ await expectProgressVolume(app, '880 kg');
  await app.goto('/backup');await app.getByLabel('Contraseña portátil del respaldo',{exact:true}).fill('synthetic-history-units');
  await app.getByRole('button',{name:'Exportar respaldo cifrado',exact:true}).click();
  await expect(app.getByText('Respaldo cifrado y autenticado listo para guardar.',{exact:true})).toBeVisible();
@@ -107,6 +111,7 @@ test('edits each recorded set with effective metrics, ordered audit and immutabl
  await app.getByRole('button',{name:'Confirmar restauración del respaldo',exact:true}).click();
  await expect(app.getByText('Respaldo restaurado de forma atómica.',{exact:true})).toBeVisible();
  await app.close();app=await context.newPage();await app.goto('/history');
+ await openLatestHistorySession(app);
  await expect(app.getByText('Serie 2: 55 kg × 8',{exact:true})).toBeVisible();
  expect(await events()).toEqual(mixedAudit);expect((await readPersistence(app,info)).workouts).toEqual(original);
  await app.screenshot({path:info.outputPath('history.png'),fullPage:true});

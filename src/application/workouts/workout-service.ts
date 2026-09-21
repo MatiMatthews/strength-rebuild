@@ -13,6 +13,7 @@ import { PROGRESSION_POLICY_VERSION, proposeProgression, type ProgressionInput }
 import type { SetDeletion } from './set-deletion';
 import { validRecordedQuantity, type ExerciseRecording } from '../../domain/prescriptions/measurement';
 import { replaceExerciseDraft, type ReplacementContext } from './exercise-replacement';
+import { readProgressPlan } from './progress-plan';
 
 export type Technique = 'Limpia' | 'Regular' | 'Mala';
 export interface WorkoutSetDraft { seconds?: string; loadEntry?: LoadEntry | undefined; loadUnit?: 'kg' | 'lb'; load: string; reps: string; rir: string; technique: Technique; pain: number; notes: string; completed: boolean; skipped: boolean; disposition: 'PENDING' | 'COMPLETED' | 'SKIPPED'; skipReason?: string | undefined }
@@ -404,6 +405,7 @@ export class WorkoutService {
     return Promise.all(rows.map(async row => ({ id: row.id, completedAt: row.completed_at, prescribed: JSON.parse(row.prescribed_snapshot_json) as TodayData['session'],
       ...await projectHistory(this.db, row.id, JSON.parse(row.actual_snapshot_json) as WorkoutDraft, JSON.parse(row.prescribed_snapshot_json)) })));
   }
+  listProgressPlan() { return readProgressPlan(this.db); }
   private correctionBusy = false;
   async correctHistory(input: HistoryCorrectionInput): Promise<void> {
     const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
