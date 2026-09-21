@@ -7,12 +7,54 @@ import { WorkoutService } from '../../../src/application/workouts/workout-servic
 import type { TodayData } from '../../../src/application/programs/program-service';
 import { buildHistoryAnalytics } from '../../../src/domain/analytics/workout-history';
 import { generatePrescription } from '../../../src/domain/prescriptions/generator';
+import { remainingSeconds } from '../../../src/features/timer/rest-timer';
 
 function openDatabase(path: string) {
   const sqlite = new DatabaseSync(path);
   const db = { exec: (sql: string) => sqlite.exec(sql), runAsync: async (sql: string, ...params: SqlValue[]) => { const result = sqlite.prepare(sql).run(...params); return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) }; }, getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never, getAllAsync: async (sql: string, ...params: SqlValue[]) => sqlite.prepare(sql).all(...params) as never, withTransactionAsync: async (task: () => Promise<void>) => { sqlite.exec('BEGIN'); try { await task(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; } } } as RepositoryDatabase & MigrationDatabase;
   return { sqlite, db };
 }
+
+describe('persisted contextual rest', () => {
+  it('atomically starts optional rest and restores the original deadline and selected row', async () => {
+    const { sqlite, db } = openDatabase(':memory:');
+    await migrateDatabase(db);
+    let now = Date.parse('2026-09-20T12:00:00Z');
+    const service = new WorkoutService(db, undefined, () => new Date(now).toISOString());
+    const session = generatePrescription({ id: 'rest', type: 'strength', weeks: 1 }).weeks[0]!.sessions[0]!;
+    let draft = await service.startOrResume(session);
+    draft = { ...draft, autoRestEnabled: true, restSeconds: 120, activeExerciseIndex: 2, activeSetIndex: 1 };
+    draft = await service.completeSetAndSave(draft, 2, 1);
+    expect(draft.timer).toEqual({ durationSeconds: 120, remainingSeconds: 120, runningSince: now });
+    const deadline = draft.timer;
+    now += 30_000;
+    draft = await service.completeSetAndSave(draft, 2, 1);
+    expect(draft.timer).toEqual(deadline);
+    const reopened = await new WorkoutService(db, undefined, () => new Date(now).toISOString()).startOrResume(session);
+    expect(reopened).toMatchObject({ autoRestEnabled: true, restSeconds: 120, activeExerciseIndex: 2, activeSetIndex: 1, timer: deadline });
+    expect(remainingSeconds(reopened.timer!, now)).toBe(90);
+    expect(reopened.exercises).toEqual(draft.exercises);
+    now += 120_000;
+    const expired = await new WorkoutService(db, undefined, () => new Date(now).toISOString()).startOrResume(session);
+    expect(expired.timer).toMatchObject({ remainingSeconds: 0, runningSince: null });
+    sqlite.close();
+  });
+
+  it('leaves manual rest alone and rolls back completion and auto-rest together on failure', async () => {
+    const { sqlite, db } = openDatabase(':memory:');
+    await migrateDatabase(db);
+    const service = new WorkoutService(db);
+    const session = generatePrescription({ id: 'rest-failure', type: 'strength', weeks: 1 }).weeks[0]!.sessions[0]!;
+    let draft = await service.startOrResume(session);
+    draft = await service.completeSetAndSave(draft, 2, 0);
+    expect(draft.timer?.runningSince).toBeNull();
+    const before = sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get();
+    sqlite.exec("CREATE TRIGGER fail_rest BEFORE UPDATE ON workout_session BEGIN SELECT RAISE(ABORT, 'synthetic rest failure'); END");
+    await expect(service.completeSetAndSave({ ...draft, autoRestEnabled: true }, 2, 1)).rejects.toThrow('synthetic rest failure');
+    expect(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()).toEqual(before);
+    sqlite.close();
+  });
+});
 
 describe('explicit early completion', () => {
   it('requires confirmation and completed work, preserving every pending and skipped field through reopen', async () => {
