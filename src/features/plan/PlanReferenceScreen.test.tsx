@@ -14,6 +14,25 @@ import { PlanReferenceScreen, type PlanPrograms } from './PlanReferenceScreen';
 describe('PlanReferenceScreen', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('restores the selected week without activating it and preserves selection on a failed write', async () => {
+    const cycles = generateCycleSequence([{ id: 'selected', type: 'strength', weeks: 2 }]);
+    const programs: PlanPrograms = { activateCycle: jest.fn(), createPlan: jest.fn(), listCycleSnapshots: jest.fn().mockResolvedValue(cycles), getActiveCycleId: jest.fn().mockResolvedValue('selected') };
+    let saved: string | null = 'selected-2';
+    const selectionStore = { load: async () => saved, save: jest.fn(async (value: string | null) => { saved = value; }) };
+    const screen = await render(<PlanReferenceScreen programs={programs} selectionStore={selectionStore} />);
+    expect((await screen.findByRole('button', { name: /Semana 2 de Fuerza/ })).props.accessibilityState.expanded).toBe(true);
+    selectionStore.save.mockRejectedValueOnce(new Error('Synthetic storage failure'));
+    await fireEvent.press(screen.getByRole('button', { name: /Semana 1 de Fuerza/ }));
+    expect(screen.getByText('No se pudo guardar la semana seleccionada. Inténtalo de nuevo.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Semana 2 de Fuerza/ }).props.accessibilityState.expanded).toBe(true);
+    await fireEvent.press(screen.getByRole('button', { name: /Semana 1 de Fuerza/ }));
+    expect(saved).toBe('selected-1');
+    await screen.unmount();
+    const reopened = await render(<PlanReferenceScreen programs={programs} selectionStore={selectionStore} />);
+    expect((await reopened.findByRole('button', { name: /Semana 1 de Fuerza/ })).props.accessibilityState.expanded).toBe(true);
+    expect(programs.activateCycle).not.toHaveBeenCalled();
+  });
+
   it('handles an inventory read failure without exposing write actions', async () => {
     const programs: PlanPrograms = {
       activateCycle: jest.fn(), createPlan: jest.fn(), previewLegacyReplacement: jest.fn(),
@@ -258,7 +277,7 @@ describe('PlanReferenceScreen', () => {
     const view = await render(<PlanReferenceScreen programs={programs} />);
     const title = await view.findByText('Fuerza');
     const ordinal = view.getAllByText('01')[0];
-    const transitionSummary = view.getAllByText('0 sesiones · toca para ver detalles')[1];
+    const transitionSummary = view.getAllByText('0 sesiones · Ver detalles')[1];
     if (!ordinal || !transitionSummary) throw new Error('Expected both program rows');
     expect(StyleSheet.flatten(title.props.style).color).toBe(theme.text);
     expect(StyleSheet.flatten(ordinal.props.style).color).toBe(theme.text);

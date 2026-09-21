@@ -11,7 +11,6 @@ import {
   AppMasthead,
   BrandContent,
   IconCommand,
-  MetricStrip,
   OrdinalRow,
   PhaseBand,
   StatusActionBand,
@@ -27,6 +26,7 @@ import type { SafetyInput } from "@/domain/safety";
 import { exerciseCatalog } from "@/data/seeds/exercises";
 import type { TodayState } from "./today-state";
 import { useAppTheme } from "@/design-system/use-app-theme";
+import { todayCalendar } from './today-calendar';
 
 type Props = {
   recommendations?: ReactNode;
@@ -38,7 +38,7 @@ type Props = {
   onCreatePlan?: () => void;
   onOpenReview?: () => void;
   onOpenCycle?: () => void;
-  onStartWorkout: () => void;
+  onStartWorkout: (exerciseIndex?: number) => void;
   readinessGate?: ComponentType<ReadinessGateProps>;
   state: TodayState;
 };
@@ -82,7 +82,11 @@ export function TodayReferenceScreen({
   const theme = useAppTheme();
   const [gateOpen, setGateOpen] = useState(Boolean(initialReadinessInput));
   const [persistedReadinessDismissed, setPersistedReadinessDismissed] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<number | undefined>();
   const data = "data" in state ? state.data : null;
+  const calendar = todayCalendar(data, new Date());
+  const preparation = savedReadiness ?? activeReadiness;
+  const preparationBlocked = preparation && ['PATTERN_STOPPED', 'ABORTED', 'REVIEW_REQUIRED'].includes(preparation.sessionStatus);
   const exercises = data?.session.blocks
     ? data.session.blocks.filter((block) => block.role !== "finish-review").flatMap((block) => block.exercises)
     : data?.session.exercises ?? [];
@@ -104,14 +108,17 @@ export function TodayReferenceScreen({
             "Todavía no hay un plan activo",
             "Crea y confirma un ciclo para ver aquí tu próxima sesión.",
           ];
-  const enterWorkout =
-    state.kind === "resume" && !savedReadiness ? onStartWorkout : () => setGateOpen(true);
+  const enterWorkout = (index?: number) => {
+    setSelectedExercise(index);
+    if (state.kind === 'resume' && !savedReadiness) onStartWorkout(index);
+    else setGateOpen(true);
+  };
   if (!data)
     return (
       <Screen testID={`today-${state.kind}`}>
         <AppMasthead
           command={<IconCommand icon={Settings} label="Abrir ajustes" onPress={onOpenSettings} />}
-          context="Preparación de hoy y sesión disponibles sin conexión"
+          context={calendar.date}
           testID="brand-masthead"
           title="HOY"
         />
@@ -132,7 +139,7 @@ export function TodayReferenceScreen({
     <Screen testID={`today-${state.kind}`}>
       <AppMasthead
         command={<IconCommand icon={Settings} label="Abrir ajustes" onPress={onOpenSettings} />}
-        context="Preparación de hoy y entrenamiento disponibles sin conexión"
+        context={calendar.date}
         testID="brand-masthead"
         title="HOY"
       />
@@ -144,32 +151,18 @@ export function TodayReferenceScreen({
           total={data.cycle.weeks.length}
         />
         <BrandContent>
-          {recommendations}
           <View testID="session-header" style={styles.sessionHeader}>
-            <Text style={[styles.eyebrowDark, { color: theme.textMuted }]}>DÍA {data.dayIndex}</Text>
+            <Text testID="today-calendar-status" style={[styles.eyebrowDark, { color: theme.textMuted }]}>{state.kind === 'resume' ? 'Sesión en curso' : calendar.status} · DÍA {data.dayIndex}</Text>
             <Text
               accessibilityRole="header"
               aria-level={2}
-              style={[styles.display, { color: theme.text }]}
+              style={[styles.title, { color: theme.text }]}
             >
               Entrenamiento de {cycleNames[data.cycleType]}
             </Text>
             <Text style={[styles.body, { color: theme.textMuted }]}>
-              {exercises.length} ejercicios en el orden del
-              entrenamiento
+              {calendar.nextSession} · {exercises.length} ejercicios
             </Text>
-            <MetricStrip
-              metrics={[
-                {
-                  label: "EJERCICIOS",
-                  value: String(exercises.length),
-                },
-                {
-                  label: "RIR OBJETIVO",
-                  value: `${exercises[0]?.target.rir.min ?? "—"}–${exercises[0]?.target.rir.max ?? "—"}`,
-                },
-              ]}
-            />
           </View>
           {state.kind === "restriction" ? (
             <View
@@ -196,14 +189,14 @@ export function TodayReferenceScreen({
           <View testID="readiness-action-band">
             <StatusActionBand
               title={
-                state.kind === "resume"
+                preparationBlocked ? 'Preparación detenida' : preparation?.sessionStatus === 'MODIFIED' ? 'Preparación adaptada' : state.kind === "resume"
                   ? "Sesión en curso"
                   : state.kind === "restriction"
                     ? "Preparación con restricciones"
                     : "Preparación de hoy"
               }
               detail={
-                state.kind === "resume"
+                preparationBlocked ? 'Revisa el motivo guardado. Este acceso no elimina el bloqueo.' : preparation?.sessionStatus === 'MODIFIED' ? 'Se conservan los ajustes de la preparación guardada.' : state.kind === "resume"
                   ? "Continúa desde el último estado guardado."
                   : "Confirma tu estado antes de abrir el entrenamiento."
               }
@@ -212,10 +205,11 @@ export function TodayReferenceScreen({
                   ? "Continuar entrenamiento"
                   : "Revisar preparación para entrenar"
               }
-              onAction={enterWorkout}
+              onAction={() => enterWorkout()}
             />
           </View>
           {state.kind === "resume" ? <ActionButton tone="secondary" onPress={() => setGateOpen(true)}>Revisar preparación para entrenar</ActionButton> : null}
+          {recommendations}
           <View testID="exercise-run-sheet" style={styles.runSheet}>
             <Text
               accessibilityRole="header"
@@ -232,7 +226,8 @@ export function TodayReferenceScreen({
                 detail={prescriptionQuantity(exercise)}
                 actionLabel={`Abrir ejercicio ${index + 1}: ${exerciseLabel(exercise.exerciseId)}`}
                 icon={ArrowRight}
-                onPress={enterWorkout}
+                trailing={<IconCommand icon={ArrowRight} label={`Abrir ejercicio ${index + 1}: ${exerciseLabel(exercise.exerciseId)}`} onPress={() => enterWorkout(index)} />}
+                onPress={() => enterWorkout(index)}
               />
             ))}
           </View>
@@ -243,12 +238,12 @@ export function TodayReferenceScreen({
         savedDecision={savedReadiness ?? activeReadiness}
         initialInput={initialReadinessInput ?? activeReadiness?.input ?? null}
         visible={gateOpen || ((Boolean(initialReadinessInput) || Boolean(savedReadiness)) && !persistedReadinessDismissed)}
-        onClose={() => { setGateOpen(false); setPersistedReadinessDismissed(true); }}
+        onClose={() => { setGateOpen(false); setSelectedExercise(undefined); setPersistedReadinessDismissed(true); }}
         {...(onApplyReadiness ? { onDecision: onApplyReadiness } : {})}
         onReady={async () => {
           setGateOpen(false);
           setPersistedReadinessDismissed(true);
-          onStartWorkout();
+          onStartWorkout(selectedExercise);
         }}
       />
     </Screen>
@@ -285,7 +280,7 @@ const styles = StyleSheet.create({
   display: { ...typography.display, color: palette.ink },
   heading: { ...typography.heading, color: palette.ink },
   body: { ...typography.body, color: palette.steel },
-  sessionHeader: { gap: spacing.md, paddingVertical: spacing.xl },
+  sessionHeader: { gap: spacing.sm, paddingVertical: spacing.md },
   restriction: {
     alignItems: "flex-start",
     borderBottomColor: palette.caution,

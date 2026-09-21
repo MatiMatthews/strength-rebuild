@@ -21,9 +21,11 @@ test('fresh personal previews never select demo or invent unknown reference load
   expect(exercises(state).every(e => e.calculatedLoad === undefined && e.loadSource === undefined)).toBe(true);
   await page.getByRole('button', { name: /Semana 1 de Fuerza/ }).click();
   await expect(page.getByText('Carga por definir', { exact: true }).first()).toBeVisible();
+  const selected = await readPersistence(page, info);
+  expect(selected).toEqual({ ...state, settings: [...state.settings, { key: 'plan-week-selection', value_json: JSON.stringify('strength-draft-1') }].sort((a, b) => String(a.key).localeCompare(String(b.key))) });
   await page.close(); const reopened = await context.newPage(); await reopened.goto('/settings');
   await expect(reopened.getByLabel('No sé mi referencia de Press banca', { exact: true })).toHaveAttribute('aria-checked','true');
-  expect(await readPersistence(reopened, info)).toEqual(state);
+  expect(await readPersistence(reopened, info)).toEqual(selected);
 });
 
 test('personal reference save, invalid input, cancel and unknown preserve active work and refresh future previews', async ({ page, context }, info) => {

@@ -15,6 +15,22 @@ const planned = {
 describe('Today production states', () => {
   const settings = { onOpenSettings: jest.fn() };
 
+  it('keeps the selected exercise through preparation and discards a cancelled selection', async () => {
+    const onStart = jest.fn();
+    const data: TodayData = { ...planned, session: { ...planned.session, exercises: Array.from({ length: 3 }, () => planned.session.exercises[0]!) } };
+    const screen = await render(<TodayReferenceScreen {...settings} state={{ kind: 'planned', data }} onStartWorkout={onStart} />);
+    await fireEvent.press(screen.getByLabelText('Abrir ejercicio 3: Press banca'));
+    expect(onStart).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('Dolor de 0 a 2, estable'));
+    await fireEvent.press(screen.getByLabelText('Confirmar preparación'));
+    expect(onStart).toHaveBeenLastCalledWith(2);
+    await fireEvent.press(screen.getByLabelText('Abrir ejercicio 3: Press banca'));
+    await fireEvent.press(screen.getByLabelText('Cerrar Preparación de hoy'));
+    await fireEvent.press(screen.getByLabelText('Revisar preparación para entrenar'));
+    await fireEvent.press(screen.getByLabelText('Confirmar preparación'));
+    expect(onStart).toHaveBeenLastCalledWith(undefined);
+  });
+
   it('previews the canonical workout and warns about block-only invalid references without changing the legacy projection', async () => {
     const template = planned.session.exercises[0]!;
     const data: TodayData = { ...planned, session: { ...planned.session, blocks: [
