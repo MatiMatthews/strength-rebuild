@@ -22,7 +22,7 @@ for (const colorScheme of ['light', 'dark'] as const) test(`${colorScheme} role 
   const before = await readPersistence(page, info); const input = page.getByLabel('Incremento 1', { exact: true }); await input.fill('3,75');
   await page.getByRole('button', { name: 'Guardar configuración local', exact: true }).click(); await expect(page.getByText('Configuración guardada en este dispositivo.')).toBeVisible();
   const saved = await readPersistence(page, info); expect(saved.workouts).toEqual(before.workouts); expect(JSON.parse(String(saved.settings.find(r => r.key === 'training-settings')!.value_json)).increments[0]).toBe(3.75);
-  await page.goto('/backup'); const title = page.getByRole('heading', { name: 'RESPALDO Y RECUPERACIÓN', exact: true }); await headingBounds(title, 28);
+  await page.goto('/backup'); const title = page.getByRole('heading', { name: 'Respaldos', exact: true }); await headingBounds(title, 28);
   await title.evaluate(el => { (el as HTMLElement).style.fontSize = '22px'; }); await expect(headingBounds(title, 28)).rejects.toThrow(); await title.evaluate(el => { (el as HTMLElement).style.fontSize = ''; });
   // Text-only scaling: preserve the compact viewport and increase actual text,
   // instead of zooming the whole document and hiding layout defects.

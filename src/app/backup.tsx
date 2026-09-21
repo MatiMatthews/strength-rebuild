@@ -12,12 +12,12 @@ export default function BackupRoute() {
   const { backups } = useDataServices();
   const mode = useDataMode();
   if (mode?.mode === 'demo') return <Screen testID="backup-screen">
-    <AppMasthead context="Modo demo" title="RESPALDO Y RECUPERACIÓN" />
+    <AppMasthead context="Modo demo" title="Respaldos" />
     <AppText>Los respaldos personales no están disponibles en la demo.</AppText>
     <DemoControls />
   </Screen>;
   return <Screen testID="backup-screen">
-    <AppMasthead context="Copia local sin conexión" title="RESPALDO Y RECUPERACIÓN" />
+    <AppMasthead context="Copia local sin conexión" title="Respaldos" />
     <AppText color="muted">Administra una copia local sin conexión. Restaurar siempre requiere confirmación.</AppText>
     <BackupPanel scenario={srScenario === 'backup-valid' || srScenario === 'backup-corrupt' ? srScenario : undefined} service={backups} />
     <ActionButton accessibilityLabel="Volver al Plan" onPress={() => navigation.goBack()} tone="secondary">Volver al Plan</ActionButton>
