@@ -1,11 +1,42 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import type { ProgramService } from '@/application/programs/program-service';
 import type { WorkoutDraft, WorkoutService } from '@/application/workouts/workout-service';
 import { WorkoutReferenceScreen } from './WorkoutReferenceScreen';
 
 jest.mock('@/design-system/v2.2/haptics', () => ({ playContractedHaptic: jest.fn() }));
 
+it('locks old exercise edits and background checkpoints while navigation is saving', async () => {
+  let listener!: (state: AppStateStatus) => void;
+  const subscription = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => { listener = handler; return { remove: jest.fn() }; });
+  const set = { load: '60', reps: '8', rir: '2', technique: 'Limpia' as const, pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING' as const };
+  const draft: WorkoutDraft = { id: 'moving', safetyModifications: [], exercises: ['barbell-bench-press', 'incline-dumbbell-press'].map(exerciseId => ({ exerciseId, originalExerciseId: exerciseId, requirement: 'EXACT', sets: [{ ...set }] })) };
+  let finish!: () => void;
+  const save = jest.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const checkpoint = jest.fn(() => true);
+  const workouts = { startOrResume: jest.fn().mockResolvedValue(draft), saveDraftSnapshot: save, saveDraftSnapshotBeforeProcessStop: checkpoint, canComplete: () => false } as unknown as WorkoutService;
+  const programs = { getToday: jest.fn().mockResolvedValue({ session: {} }) } as unknown as ProgramService;
+  const view = await render(<WorkoutReferenceScreen onClose={jest.fn()} programs={programs} workouts={workouts} />);
+  await view.findByLabelText('Carga de la serie 1');
+  await fireEvent.press(view.getByLabelText('Siguiente ejercicio'));
+  expect(view.getByLabelText('Carga de la serie 1')).toHaveProp('editable', false);
+  expect(view.getByLabelText('Completar serie 1')).toBeDisabled();
+  expect(view.getByLabelText('Añadir serie')).toBeDisabled();
+  expect(view.getByLabelText('Aumentar molestia de la serie 1')).toBeDisabled();
+  await fireEvent.changeText(view.getByLabelText('Carga de la serie 1'), '99');
+  await act(async () => { listener('background'); listener('active'); });
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(checkpoint).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(view.getByTestId('workout-sequence-rail')).toHaveProp('accessibilityValue', expect.objectContaining({ now: 2 }));
+  expect(view.getByLabelText('Carga de la serie 1')).toHaveProp('value', '60');
+  expect(draft.exercises[0]!.sets[0]!.load).toBe('60');
+  await view.unmount();
+  subscription.mockRestore();
+});
+
 it('waits for the latest edited draft before closing, prevents repeat navigation, and keeps failed saves editable', async () => {
+  const subscription = jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() });
   const draft: WorkoutDraft = { id: 'navigation', safetyModifications: [], exercises: [{ exerciseId: 'barbell-bench-press', originalExerciseId: 'barbell-bench-press', requirement: 'EXACT', sets: [{ load: '60', reps: '8', rir: '2', technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING' }] }] };
   let reject!: (error: Error) => void;
   let finish!: () => void;
@@ -32,4 +63,6 @@ it('waits for the latest edited draft before closing, prevents repeat navigation
   await act(async () => finish());
   expect(close).toHaveBeenCalledTimes(1);
   expect(draft.exercises[0]!.sets[0]!.notes).toBe('');
+  await screen.unmount();
+  subscription.mockRestore();
 });

@@ -15,7 +15,10 @@ for (const choice of ['Aceptar recomendación de sesión', 'Mantener plan de ses
     }
     const next = page.getByRole('button', { name: 'Siguiente ejercicio', exact: true });
     if (await isLastWorkoutExercise(page)) break;
+    const rail = page.getByTestId('workout-sequence-rail');
+    const current = Number(await rail.getAttribute('aria-valuenow'));
     await next.click();
+    await expect(rail).toHaveAttribute('aria-valuenow', String(current + 1));
   }
   await page.getByRole('button', { name: 'Revisar y terminar entrenamiento', exact: true }).click();
   await expect(page.getByTestId('finish-review')).toBeVisible();
