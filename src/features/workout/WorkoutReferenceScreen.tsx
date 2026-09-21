@@ -195,6 +195,8 @@ export function WorkoutReferenceScreen({
   const [deletionError, setDeletionError] = useState("");
   const [savingDeletion, setSavingDeletion] = useState(false);
   const deletionLock = useRef(false);
+  const mutationPending = useCallback(() => navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current || replacementLock.current || finishLock.current, []);
+  const savingDraft = savingSet || savingNavigation || savingOmission || savingDeletion || savingReplacement || savingFinish;
   const [now, setNow] = useState(() => Date.now());
   // A restored native route must explicitly transition to its persisted index
   // so the scroll reset runs; otherwise Android can reopen at the pre-kill
@@ -205,13 +207,14 @@ export function WorkoutReferenceScreen({
   useEffect(() => { entryAppliedRef.current = onEntryApplied; }, [onEntryApplied]);
   useEffect(() => {
     if (!workouts || !focused) return;
-    if (latestDraftRef.current) {
+    if (latestDraftRef.current && !mutationPending()) {
       setNow(Date.now());
       void workouts.saveDraftSnapshot(latestDraftRef.current)
         .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudo comprobar la preparación guardada."));
     }
     const subscription = AppState.addEventListener("change", (state) => {
-      if (!latestDraftRef.current) return;
+      // An explicit mutation owns its checkpoint until persistence acknowledges it.
+      if (!latestDraftRef.current || mutationPending()) return;
       if (state === "active") {
         setNow(Date.now());
         // An unchanged save verifies persisted readiness and restrictions too.
@@ -229,7 +232,7 @@ export function WorkoutReferenceScreen({
       }
     });
     return () => subscription.remove();
-  }, [workouts, focused]);
+  }, [workouts, focused, mutationPending]);
   const [settings, setSettings] = useState<TrainingSettings>(defaultSettings);
   useEffect(() => {
     if (settingsStore) void settingsStore.load().then(setSettings);
@@ -269,14 +272,16 @@ export function WorkoutReferenceScreen({
   useEffect(() => {
     if (!draft || !workouts || savingReplacement || savingOmission || savingDeletion || savingSet || savingNavigation || navigationError || error) return;
     const timer = setTimeout(
-      () =>
+      () => {
+        if (mutationPending()) return;
         void workouts
           .saveDraftSnapshot(latestDraftRef.current ?? draft)
-          .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios")),
+          .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "No se pudieron guardar los cambios"));
+      },
       250,
     );
     return () => clearTimeout(timer);
-  }, [draft, workouts, savingReplacement, savingOmission, savingDeletion, savingSet, savingNavigation, navigationError, error]);
+  }, [draft, workouts, savingReplacement, savingOmission, savingDeletion, savingSet, savingNavigation, navigationError, error, mutationPending]);
   useEffect(() => {
     if (!draft?.timer?.runningSince) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -309,7 +314,7 @@ export function WorkoutReferenceScreen({
       </Screen>
     );
   const closeWorkout = async () => {
-    if (navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current || replacementLock.current) return;
+    if (mutationPending()) return;
     navigationLock.current = true;
     setSavingNavigation(true);
     setNavigationError("");
@@ -327,6 +332,7 @@ export function WorkoutReferenceScreen({
     field: "load" | "reps" | "seconds" | "rir" | "notes",
     value: string,
   ) => {
+      if (mutationPending()) return;
       const current = latestDraftRef.current;
       if (!current) return;
       let loadPatch = {};
@@ -377,7 +383,7 @@ export function WorkoutReferenceScreen({
     patch: Partial<(typeof exercise.sets)[number]>,
   ) =>
     setDraft((current) => {
-      if (!current) return null;
+      if (!current || mutationPending()) return current;
       return workouts
         ? workouts.recordSet(current, exerciseIndex, index, patch)
         : {
@@ -394,7 +400,8 @@ export function WorkoutReferenceScreen({
             ),
           };
     });
-  const addSet = () =>
+  const addSet = () => {
+    if (mutationPending()) return;
     setDraft(
       (current) =>
         current && {
@@ -419,13 +426,15 @@ export function WorkoutReferenceScreen({
           ),
         },
     );
+  };
   const removeSet = () => {
+    if (mutationPending()) return;
     setDeletionError("");
     setSkipSetIndex(null);
     setDeleting(true);
   };
   const persistDeletion = async (undoId?: number) => {
-    if (deletionLock.current) return;
+    if (mutationPending()) return;
     const current = latestDraftRef.current;
     if (!current) return;
     deletionLock.current = true;
@@ -457,7 +466,7 @@ export function WorkoutReferenceScreen({
     || (perSide && exercise.exerciseId === 'pallof-press') || exercise.sets.some(set => set.load.trim() !== '');
   const quantityFields = timed ? ['seconds'] as const : showLoad ? ['load', 'reps'] as const : ['reps'] as const;
   const selectSet = (index: number) => {
-    if (savingSet || savingOmission || savingDeletion || savingNavigation) return;
+    if (mutationPending()) return;
     const current = latestDraftRef.current;
     if (!current) return;
     if ((current.activeSetIndex ?? 0) === index) return;
@@ -467,7 +476,7 @@ export function WorkoutReferenceScreen({
   };
   const navigateExercise = async (delta: number) => {
     const current = latestDraftRef.current;
-    if (!current || navigationLock.current || completionLock.current || omissionLock.current || deletionLock.current || replacementLock.current) return;
+    if (!current || mutationPending()) return;
     const index = Math.max(0, Math.min(current.exercises.length - 1, exerciseIndex + delta));
     const next = { ...current, activeExerciseIndex: index, activeSetIndex: 0 };
     navigationLock.current = true;
@@ -486,7 +495,7 @@ export function WorkoutReferenceScreen({
     }
   };
   const completeSetAt = async (index: number, undo = false) => {
-    if (completionLock.current) return;
+    if (mutationPending()) return;
     const current = latestDraftRef.current;
     if (!current) return;
     completionLock.current = true;
@@ -526,6 +535,7 @@ export function WorkoutReferenceScreen({
   }
   const timer = draft.timer ?? resetTimer();
   const updateTimer = (next: typeof timer) => {
+    if (mutationPending()) return;
     const current = latestDraftRef.current;
     if (!current) return;
     const updated = { ...current, timer: next, ...([60, 90, 120].includes(next.durationSeconds) ? { restSeconds: next.durationSeconds } : {}) };
@@ -563,7 +573,7 @@ export function WorkoutReferenceScreen({
             accessibilityLabel="Confirmar fin de entrenamiento"
             busy={savingFinish}
             onPress={async () => {
-              if (finishLock.current) return;
+              if (mutationPending()) return;
               finishLock.current = true;
               setSavingFinish(true);
               setFinishError('');
@@ -613,25 +623,25 @@ export function WorkoutReferenceScreen({
                 <IconButton
                   accessibilityLabel="Ejercicio anterior"
                   icon={ArrowLeft}
-                  disabled={savingSet || savingNavigation || exerciseIndex === 0}
-                  onPress={() => navigateExercise(-1)}
+                  disabled={savingDraft || exerciseIndex === 0}
+                  onPress={() => void navigateExercise(-1)}
                 />
                 <IconButton
                   accessibilityLabel="Siguiente ejercicio"
                   icon={ArrowRight}
-                  disabled={savingSet || savingNavigation || exerciseIndex === draft.exercises.length - 1}
-                  onPress={() => navigateExercise(1)}
+                  disabled={savingDraft || exerciseIndex === draft.exercises.length - 1}
+                  onPress={() => void navigateExercise(1)}
                 />
               <View style={styles.flex}>
               <ActionButton
                 accessibilityLabel="Revisar y terminar entrenamiento"
                 disabled={
-                  savingSet || savingNavigation || savingOmission || savingDeletion || Object.keys(invalidLoads).length > 0 || (workouts
+                  savingDraft || Object.keys(invalidLoads).length > 0 || (workouts
                     ? !(workouts.canComplete(draft) || workouts.canFinishEarly?.(draft))
                     : !draft.exercises.some(item => item.sets.some(set => set.disposition === 'COMPLETED')))
                 }
                 icon={Check}
-                onPress={() => { setFinishError(''); setFinishing(true); }}
+                onPress={() => { if (mutationPending()) return; setFinishError(''); setFinishing(true); }}
               >
                 Terminar
               </ActionButton>
@@ -703,7 +713,7 @@ export function WorkoutReferenceScreen({
               history={history}
               context={{ type: cycleType, profile: planningProfile(settings) }}
               onConfirm={async (selected, reason) => {
-                if (replacementLock.current) return;
+                if (mutationPending()) return;
                 replacementLock.current = true;
                 setSavingReplacement(true);
                 const current = latestDraftRef.current ?? draft;
@@ -732,7 +742,9 @@ export function WorkoutReferenceScreen({
           ) : guidance ? (
             <ActionButton
               accessibilityLabel="Reemplazar ejercicio"
+              disabled={savingDraft}
               onPress={async () => {
+                if (mutationPending()) return;
                 try {
                   if (settingsStore) setSettings(await settingsStore.load());
                   if (workouts?.listHistory) setHistory(await workouts.listHistory());
@@ -769,11 +781,13 @@ export function WorkoutReferenceScreen({
             <View style={styles.commands}>
               <IconButton
                 accessibilityLabel="Quitar última serie"
+                disabled={savingDraft}
                 icon={Minus}
                 onPress={removeSet}
               />
               <IconButton
                 accessibilityLabel="Añadir serie"
+                disabled={savingDraft}
                 icon={Plus}
                 onPress={addSet}
               />
@@ -783,7 +797,7 @@ export function WorkoutReferenceScreen({
           {exercise.sets.map((set, index) => (
             <SetEntryRow key={index}>
               <View style={styles.fields}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Editar serie ${index + 1}`} accessibilityState={{ expanded: activeSet === index }} onPress={() => selectSet(index)} style={{ minWidth: 36, minHeight: 48, justifyContent: 'center' }}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Editar serie ${index + 1}`} disabled={savingDraft} accessibilityState={{ expanded: activeSet === index, disabled: savingDraft }} onPress={() => selectSet(index)} style={{ minWidth: 36, minHeight: 48, justifyContent: 'center' }}>
                   <AppText variant="bodyStrong">{String(index + 1).padStart(2, '0')}</AppText>
                 </Pressable>
                 {quantityFields.map((field) => (
@@ -796,7 +810,7 @@ export function WorkoutReferenceScreen({
                         : field === 'seconds' ? 'Segundos' : perSide ? 'Reps / lado' : "Reps"
                     }
                     value={field === "load" ? invalidLoads[`${exerciseIndex}:${index}`] ?? displayLoad(set, settings.units) : set[field] ?? ''}
-                    disabled={savingSet}
+                    disabled={savingDraft}
                     onChangeText={(value) => change(index, field, value)}
                     onFocus={() => selectSet(index)}
                   />
@@ -804,7 +818,7 @@ export function WorkoutReferenceScreen({
                 <View style={{ justifyContent: 'flex-end' }}><IconButton
                   accessibilityLabel={`Completar serie ${index + 1}`} icon={Check}
                   selected={set.disposition === 'COMPLETED'}
-                  disabled={set.pain >= 5 || savingSet || Object.keys(invalidLoads).length > 0 || !validRecordedQuantity(exercise.recording, set)}
+                  disabled={set.pain >= 5 || savingDraft || Object.keys(invalidLoads).length > 0 || !validRecordedQuantity(exercise.recording, set)}
                   onPress={() => void completeSetAt(index)}
                 /></View>
               </View>
@@ -813,8 +827,8 @@ export function WorkoutReferenceScreen({
                   : `${showLoad ? `${displayLoad(previousSets[index]!, settings.units) || 'Sin carga'}${previousSets[index]!.load ? ` ${settings.units}` : ''} × ` : ''}${previousSets[index]!.reps} reps${perSide ? ' / lado' : ''}` : 'sin registro'}</AppText>
               {set.pain > 0 && activeSet !== index ? <AppText accessibilityRole="alert">Molestia registrada: {set.pain}/10</AppText> : null}
               {activeSet === index ? <>
-              {set.disposition === 'COMPLETED' ? <IconButton accessibilityLabel={`Deshacer completado de la serie ${index + 1}`} icon={Undo2} disabled={savingSet} onPress={() => void completeSetAt(index, true)} /> : null}
-              <SetField disabled={savingSet} label={`RIR de la serie ${index + 1}`} visibleLabel="RIR" value={set.rir} onChangeText={value => change(index, 'rir', value)} />
+              {set.disposition === 'COMPLETED' ? <IconButton accessibilityLabel={`Deshacer completado de la serie ${index + 1}`} icon={Undo2} disabled={savingDraft} onPress={() => void completeSetAt(index, true)} /> : null}
+              <SetField disabled={savingDraft} label={`RIR de la serie ${index + 1}`} visibleLabel="RIR" value={set.rir} onChangeText={value => change(index, 'rir', value)} />
               <View
                 accessibilityRole="radiogroup"
                 style={[
@@ -827,14 +841,14 @@ export function WorkoutReferenceScreen({
                     <Pressable
                       accessibilityLabel={`${option}, serie ${index + 1}`}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: set.technique === option, disabled: savingSet }}
-                      disabled={savingSet}
+                      accessibilityState={{ checked: set.technique === option, disabled: savingDraft }}
+                      disabled={savingDraft}
                       aria-checked={set.technique === option}
                       key={option}
                       onPress={() => {
                         setMeta(index, { technique: option });
                       }}
-                      style={({ pressed }) => [styles.segment, { backgroundColor: set.technique === option ? palette.signal : theme.surface, borderColor: set.technique === option ? palette.ink : theme.textMuted, borderWidth: pressed && !savingSet ? 2 : 1 }]}
+                      style={({ pressed }) => [styles.segment, { backgroundColor: set.technique === option ? palette.signal : theme.surface, borderColor: set.technique === option ? palette.ink : theme.textMuted, borderWidth: pressed && !savingDraft ? 2 : 1 }]}
                     >
                       <AppText
                         style={{ color: set.technique === option ? palette.ink : theme.text }}
@@ -851,6 +865,7 @@ export function WorkoutReferenceScreen({
                 <View style={styles.commands}>
                   <IconButton
                     accessibilityLabel={`Disminuir molestia de la serie ${index + 1}`}
+                    disabled={savingDraft}
                     icon={Minus}
                     onPress={() =>
                       setMeta(index, { pain: Math.max(0, set.pain - 1) })
@@ -858,6 +873,7 @@ export function WorkoutReferenceScreen({
                   />
                   <IconButton
                     accessibilityLabel={`Aumentar molestia de la serie ${index + 1}`}
+                    disabled={savingDraft}
                     icon={Plus}
                     onPress={() =>
                       setMeta(index, { pain: Math.min(10, set.pain + 1) })
@@ -869,7 +885,7 @@ export function WorkoutReferenceScreen({
               {noteRows.has(`${exerciseIndex}:${index}`) || set.notes.length > 0 ? <TextInput
                 accessibilityLabel={`Notas de la serie ${index + 1}`}
                 multiline
-                editable={!savingSet}
+                editable={!savingDraft}
                 onChangeText={(value) => change(index, "notes", value)}
                 placeholder="Notas opcionales"
                 placeholderTextColor={theme.textMuted}
@@ -884,7 +900,7 @@ export function WorkoutReferenceScreen({
                 {activeSet === index ?
                 <ActionButton
                   accessibilityLabel={`Omitir serie ${index + 1}`}
-                  disabled={set.completed || savingOmission}
+                  disabled={set.completed || savingDraft}
                   onPress={() => {
                     const initialReason = set.skipReason ?? "Omitida por el usuario";
                     setSkipSetIndex(index);
@@ -922,7 +938,7 @@ export function WorkoutReferenceScreen({
                       accessibilityLabel={`Confirmar omisión de la serie ${index + 1}`}
                       disabled={savingOmission}
                       onPress={async () => {
-                        if (omissionLock.current) return;
+                        if (mutationPending()) return;
                         if (!skipReason.trim()) {
                           setSkipError("Escribe un motivo para omitir la serie.");
                           return;
@@ -981,6 +997,7 @@ export function WorkoutReferenceScreen({
             </SetEntryRow>
           ))}
           <RestDock timer={timer} now={now} onChange={updateTimer} autoStart={draft.autoRestEnabled ?? false} onAutoStartChange={autoRestEnabled => {
+            if (mutationPending()) return;
             const current = latestDraftRef.current;
             if (!current) return;
             const next = { ...current, autoRestEnabled };

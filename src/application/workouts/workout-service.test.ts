@@ -55,6 +55,47 @@ describe('WorkoutService', () => {
     sqlite.close();
   });
 
+  it.each([false, true])('preserves queued revision lineage across an unchanged checkpoint (external edit: %s)', async externalEdit => {
+    const sqlite = new DatabaseSync(':memory:');
+    const writes: (() => void)[] = [];
+    const run = (sql: string, ...params: SqlValue[]) => {
+      const result = sqlite.prepare(sql).run(...params);
+      return { changes: Number(result.changes), lastInsertRowId: Number(result.lastInsertRowid) };
+    };
+    await migrateDatabase({ exec: async (sql: string) => { sqlite.exec(sql); }, getFirstAsync: async (sql: string) => (sqlite.prepare(sql).get() ?? null) as never, runAsync: async (sql: string, ...params: SqlValue[]) => run(sql, ...params) } as MigrationDatabase);
+    sqlite.exec("INSERT INTO workout_session (id,schema_version,created_at,updated_at,status,prescribed_snapshot_json,actual_snapshot_json) VALUES ('draft',1,'now','now','IN_PROGRESS','{}','{}')");
+    const db = {
+      getFirstAsync: async (sql: string, ...params: SqlValue[]) => (sqlite.prepare(sql).get(...params) ?? null) as never,
+      runAsync: (sql: string, ...params: SqlValue[]) => new Promise(resolve => { writes.push(() => resolve(run(sql, ...params))); }),
+    } as unknown as RepositoryDatabase;
+    const service = new WorkoutService(db);
+    const draft = { id: 'draft', exercises: [{ exerciseId: 'bodyweight-activation', originalExerciseId: 'bodyweight-activation', requirement: 'CAPABILITY', sets: [{ load: '', reps: '5', rir: '3', technique: 'Limpia', pain: 0, notes: '', completed: false, skipped: false, disposition: 'PENDING' }] }], safetyModifications: [] } as import('./workout-service').WorkoutDraft;
+    const first = service.saveDraftSnapshot(draft);
+    const unchanged = service.saveDraftSnapshot({ ...draft });
+    const next = { ...draft, activeExerciseIndex: 1 };
+    const last = service.saveDraftSnapshot(next).then(() => null, error => error as Error);
+    await Promise.resolve();
+    writes[0]!();
+    await first;
+    await Promise.resolve();
+    writes[1]!();
+    await unchanged;
+    await Promise.resolve();
+    if (externalEdit) sqlite.exec("UPDATE workout_session SET actual_snapshot_json = json_set(actual_snapshot_json, '$.revision', 99)");
+    writes[2]!();
+    const error = await last;
+    const stored = JSON.parse(String(sqlite.prepare('SELECT actual_snapshot_json FROM workout_session').get()!.actual_snapshot_json));
+    if (externalEdit) {
+      expect(error?.message).toContain('La seguridad');
+      expect(stored.revision).toBe(99);
+      expect(stored.activeExerciseIndex).toBeUndefined();
+    } else {
+      expect(error).toBeNull();
+      expect(stored).toEqual({ ...next, revision: 2 });
+    }
+    sqlite.close();
+  });
+
   it.each(['committed', 'not committed', 'external edit'] as const)('reconciles a timed-out checkpoint that was %s without bypassing revision guards', async outcome => {
     const sqlite = new DatabaseSync(':memory:');
     const run = (sql: string, ...params: SqlValue[]) => { const r = sqlite.prepare(sql).run(...params); return { changes: Number(r.changes), lastInsertRowId: Number(r.lastInsertRowid) }; };
