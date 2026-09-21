@@ -332,6 +332,8 @@ export class WorkoutService {
       queued.lineage.add(queued.revision);
       if (this.checkpointContents.get(draft.id) === this.content(draft)) {
         await this.repository.verifyUnchangedSnapshot(draft.id, mutationSafety(draft));
+        // A verified no-op still carries the queue's accepted revision forward.
+        queued.saved = true;
         return;
       }
       const guard = mutationSafety(draft);
